@@ -136,6 +136,7 @@ class MemCmd
         HTMReq,
         HTMReqResp,
         HTMAbort,
+        MemRd,
         NUM_MEM_CMDS
     };
 
@@ -1468,6 +1469,14 @@ class Packet : public Printable
      * failed transaction, this function returns the failure reason.
      */
     HtmCacheFailure getHtmTransactionFailedInCacheRC() const;
+
+    public:
+    Command cxl_comm;
+    unsigned cxl_size;
+    unsigned ResCrd;
+    unsigned ReqCrd;
+    unsigned DataCrd;
+    unsigned rollover;
 };
 
 #endif //__MEM_PACKET_HH
