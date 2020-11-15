@@ -65,6 +65,7 @@ from common import MemConfig
 from common import ObjectList
 from common.Caches import *
 from common import Options
+from example import CXLtest
 
 def cmd_line_template():
     if options.command_line and options.command_line_file:
@@ -233,6 +234,9 @@ def build_test_system(np):
 
         MemConfig.config_mem(options, test_sys)
 
+        #CXLtest.add_options()
+        CXLtest.config_cxl_subsystem(options, test_sys)
+
     return test_sys
 
 def build_drive_system(np):
@@ -298,6 +302,7 @@ def build_drive_system(np):
 
 # Add options
 parser = optparse.OptionParser()
+CXLtest.add_options(parser)
 Options.addCommonOptions(parser)
 Options.addFSOptions(parser)
 
