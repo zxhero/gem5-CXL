@@ -121,6 +121,10 @@ protected:
         {
             xbar.recvRangeChange(id);
         }
+      public:
+        int size(){
+          return queue.size();
+        }
     };
 
     virtual bool recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id);
@@ -135,8 +139,9 @@ private:
     std::vector<int> ReqCrd;
     std::vector<int> DataCrd;
     std::vector<AddrRange *> addr;
-    void mkReadPkt(PacketPtr pkt);
-    void mkWritePkt(PacketPtr pkt);
+    unsigned last_rollover;
+    void mkReadPkt(PacketPtr pkt, PortID port_id);
+    void mkWritePkt(PacketPtr pkt, PortID port_id);
 };
 
 #endif //__CXL_CONTROLLER_HH__

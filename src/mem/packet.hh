@@ -137,6 +137,9 @@ class MemCmd
         HTMReqResp,
         HTMAbort,
         MemRd,
+        MemWr,
+        MemWrPtl,
+        DataFlit,
         NUM_MEM_CMDS
     };
 
