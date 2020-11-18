@@ -240,9 +240,11 @@ def config_cxl_subsystem(options, system):
     xbar = system.membus
 
     # create memory ranges for the serial links
+    slar0 = AddrRange(start = '0x20000000', size = '1GB')
     slar = AddrRange(start = '0x20000000', size = '512MB')
+    slar2 = AddrRange(start = '0x40000000', size = '512MB')
 
-    subsystem.cxl_conroller = CXLController(
+    subsystem.cxl_controller = CXLController(
         width = 16,
         frontend_latency = 2,
         forward_latency = 1,
@@ -254,7 +256,7 @@ def config_cxl_subsystem(options, system):
         forward_latency = 1,
         response_latency = 2,
     )
-    subsystem.cxl_controller.seriallink = SerialLink(ranges=slar,
+    subsystem.cxl_controller.seriallink = SerialLink(ranges=slar0,
                                         req_size=options.link_buffer_size_req,
                                         resp_size=options.link_buffer_size_rsp,
                                         num_lanes=options.num_lanes_per_link,
@@ -272,25 +274,60 @@ def config_cxl_subsystem(options, system):
         forward_latency = 1,
         response_latency = 2,
     )
+    subsystem.pciexbar2 = NoncoherentXBar(
+        width = 16,
+        frontend_latency = 2,
+        forward_latency = 1,
+        response_latency = 2,
+    )
+    subsystem.cxl_device2 = CXLDevice(
+        width = 16,
+        frontend_latency = 2,
+        forward_latency = 1,
+        response_latency = 2,
+    )
+    subsystem.cxl_device2.seriallink = SerialLink(ranges=slar2,
+                                        req_size=options.link_buffer_size_req,
+                                        resp_size=options.link_buffer_size_rsp,
+                                        num_lanes=options.num_lanes_per_link,
+                                        link_speed=options.serial_link_speed,
+                                        delay=options.total_ctrl_latency)
+    subsystem.pciexbar2.seriallink = SerialLink(ranges=slar2,
+                                        req_size=options.link_buffer_size_req,
+                                        resp_size=options.link_buffer_size_rsp,
+                                        num_lanes=options.num_lanes_per_link,
+                                        link_speed=options.serial_link_speed,
+                                        delay=options.total_ctrl_latency)
+
     xbar.mem_side_ports = subsystem.cxl_controller.cpu_side_ports
     sl = subsystem.cxl_controller.seriallink
     subsystem.cxl_controller.mem_side_ports = sl.cpu_side_port
     sl.mem_side_port = subsystem.pciexbar.cpu_side_ports
+
+    #cxl subsystem 1
     sl2 = subsystem.cxl_device.seriallink
     subsystem.pciexbar.mem_side_ports = sl2.cpu_side_port
     sl2.mem_side_port = subsystem.cxl_device.cpu_side_ports
+
+    #cxl subsystem 2
+    sl3 = subsystem.pciexbar2.seriallink
+    sl4 = subsystem.cxl_device2.seriallink
+    subsystem.pciexbar.mem_side_ports = sl3.cpu_side_port
+    sl3.mem_side_port = subsystem.pciexbar2.cpu_side_ports
+    subsystem.pciexbar2.mem_side_ports = sl4.cpu_side_port
+    sl4.mem_side_port = subsystem.cxl_device2.cpu_side_ports
 
     system.mem_ctrl = MemCtrl()
     mc = system.mem_ctrl
     mc.dram = DDR3_1600_8x8()
     mc.dram.range = AddrRange(start = '0x20000000', size = '512MB')
-    subsystem.mem_ctrl.port = subsystem.cxl_device.mem_side_ports
+    mc.port = subsystem.cxl_device.mem_side_ports
 
     system.mem_ctrl2 = MemCtrl()
     mc2 = system.mem_ctrl2
     mc2.dram = DDR3_1600_8x8()
     mc2.dram.range = AddrRange(start = '0x40000000', size = '512MB')
-    xbar.mem_side_ports = mc2.port
+    subsystem.cxl_device2.mem_side_ports = mc2.port
 
 class L1Cache(Cache):
     """Simple L1 Cache with default values"""
