@@ -140,6 +140,8 @@ class MemCmd
         MemWr,
         MemWrPtl,
         DataFlit,
+        MemData,
+        Cmp,
         NUM_MEM_CMDS
     };
 
@@ -1480,6 +1482,18 @@ class Packet : public Printable
     unsigned ReqCrd;
     unsigned DataCrd;
     unsigned rollover;
+    bool is_combined;
+
+    unsigned reserved_for_more_NDR;
+    unsigned reserved_for_more_DRS;
+
+    void update_size(unsigned size){
+        this->size = size;
+    };
+
+    AddrRange getCXLAddrRange() const{
+        return RangeSize(getAddr(), cxl_size);
+    };
 };
 
 #endif //__MEM_PACKET_HH

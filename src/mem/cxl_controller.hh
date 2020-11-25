@@ -15,15 +15,6 @@ public:
     virtual ~CXLController();
 
 protected:
-
-    /**
-     * Declare the layers of this crossbar, one vector for requests
-     * and one for responses.
-     */
-    std::vector<ReqLayer*> reqLayers;
-    std::vector<RespLayer*> respLayers;
-    //std::vector<QueuedRequestPort*> memSidePorts;
-
     /**
      * Declaration of the non-coherent crossbar CPU-side port type, one
      * will be instantiated for each of the memory-side ports connecting to
@@ -132,6 +123,26 @@ protected:
     Tick recvAtomicBackdoor(PacketPtr pkt, PortID cpu_side_port_id,
                             MemBackdoorPtr *backdoor=nullptr);
     void recvFunctional(PacketPtr pkt, PortID cpu_side_port_id);
+
+    class QueuedReqLayer : public ReqLayer{
+      public:
+      QueuedReqLayer(CXLControllerRequestPort& _port, BaseXBar& _xbar,
+        const std::string& _name) :
+            ReqLayer(_port, _xbar, _name), cxl_port(_port)
+        {}
+      bool TestOutstanding(ResponsePort* src_port);
+      bool CreditRelease(std::vector<int>::iterator CrePtr, int count);
+      private:
+      CXLController::CXLControllerRequestPort& cxl_port;
+      std::deque<ResponsePort*> waitingForCredit;
+    };
+    /**
+     * Declare the layers of this crossbar, one vector for requests
+     * and one for responses.
+     */
+    std::vector<QueuedReqLayer*> reqLayers;
+    std::vector<RespLayer*> respLayers;
+    //std::vector<QueuedRequestPort*> memSidePorts;
 
 private:
     //std::vector<PacketPtr> waiting;

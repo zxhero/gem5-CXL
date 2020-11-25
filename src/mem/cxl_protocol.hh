@@ -4,6 +4,7 @@
 #include "base/types.hh"
 
 #define FLIT_SIZE (528 / 8)
+#define DATA_FLIT   65
 struct M2SReq
 {
     unsigned val:1;

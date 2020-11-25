@@ -1,5 +1,7 @@
 #include "mem/cxl_controller.hh"
 
+#include <cassert>
+
 #include "base/logging.hh"
 #include "base/random.hh"
 #include "base/trace.hh"
@@ -14,10 +16,10 @@ CXLController::CXLController(const CXLControllerParams* p) :
     // the ports are enumerated starting from zero
     for (int i = 0; i < p->port_mem_side_ports_connection_count; ++i) {
         std::string portName = csprintf("%s.mem_side_port[%d]", name(), i);
-        QueuedRequestPort* bp = new CXLControllerRequestPort(portName,
+        CXLControllerRequestPort* bp = new CXLControllerRequestPort(portName,
                                 *this, i);
         memSidePorts.push_back(bp);
-        reqLayers.push_back(new ReqLayer(*bp, *this,
+        reqLayers.push_back(new QueuedReqLayer(*bp, *this,
                                          csprintf("reqLayer%d", i)));
 
     }
@@ -27,11 +29,11 @@ CXLController::CXLController(const CXLControllerParams* p) :
     if (p->port_default_connection_count) {
         defaultPortID = memSidePorts.size();
         std::string portName = name() + ".default";
-        QueuedRequestPort* bp = new CXLControllerRequestPort(portName, *this,
-                                                      defaultPortID);
+        CXLControllerRequestPort* bp = new CXLControllerRequestPort(
+            portName, *this, defaultPortID);
         memSidePorts.push_back(bp);
-        reqLayers.push_back(new ReqLayer(*bp, *this, csprintf("reqLayer%d",
-                                                              defaultPortID)));
+        reqLayers.push_back(new QueuedReqLayer(
+            *bp, *this, csprintf("reqLayer%d", defaultPortID)));
     }
 
     // create the CPU-side ports, once again starting at zero
@@ -84,6 +86,16 @@ bool CXLController::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
     // determine the destination based on the address
     PortID mem_side_port_id = findPort(pkt->getAddrRange());
 
+    //we can decide if the sender needs to retry in one cycle after
+    //recieve data valid signal from the sender.
+    if (!reqLayers[mem_side_port_id]->TestOutstanding(src_port))
+    {
+        DPRINTF(CXLController, "recvTimingReq:
+                src %s %s 0x%x WAITING FOR CREDIT\n",
+                src_port->name(), pkt->cmdString(), pkt->getAddr());
+        return false;
+    }
+
     // test if the layer should be considered occupied for the current
     // port
     //waiting.push_back(pkt);
@@ -97,22 +109,9 @@ bool CXLController::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
     //waiting.erase(waiting.begin());
     DPRINTF(CXLController, "recvTimingReq: src %s %s 0x%x %d\n",
             src_port->name(), pkt->cmdString(),
-            pkt->getAddr(), pkt->req->getSize());
+            pkt->getAddr(), pkt->getSize());
 
-    //we can decide if the sender needs to retry in one cycle after
-    //recieve data valid signal from the sender.
-    if (ResCrd[2] == 0 ||
-    ((CXLControllerRequestPort*)memSidePorts[mem_side_port_id])->size() == 64)
-    {
-        DPRINTF(CXLController, "recvTimingReq: src %s %s 0x%x RETRY\n",
-                src_port->name(), pkt->cmdString(), pkt->getAddr());
 
-        // occupy until the header is sent
-        reqLayers[mem_side_port_id]->failedTiming(src_port,
-                                                clockEdge(Cycles(1)));
-
-        return false;
-    }
 
     // store the old header delay so we can restore it if needed
     Tick old_header_delay = pkt->headerDelay;
@@ -124,8 +123,8 @@ bool CXLController::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
 
     // store size and command as they might be modified when
     // forwarding the packet
-    unsigned int pkt_size = pkt->cxl_size;
-    unsigned int pkt_cmd = (int)(pkt->cxl_comm);
+    unsigned int pkt_size = pkt->getSize();
+    unsigned int pkt_cmd = pkt->cmdToIndex();
 
     // a request sees the frontend and forward latency
     Tick xbar_delay = (frontendLatency + forwardLatency) * clockPeriod();
@@ -136,22 +135,23 @@ bool CXLController::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
     // determine how long the controller recieves whole packet
     Tick packetFinishTime = clockEdge(Cycles(1)) + pkt->payloadDelay;
 
-    // before forwarding the packet (and possibly altering it),
-    // remember if we are expecting a response
-    const bool expect_response = pkt->needsResponse() &&
-        !pkt->cacheResponding();
-
     // send the packet through the destination mem-side port, and pay for
     // any outstanding latency
     //packet is put on queue after controller recieving packet header
     Tick latency = pkt->headerDelay;
     pkt->headerDelay = 0;
-    ((CXLControllerRequestPort*)memSidePorts[mem_side_port_id])
-                            ->schedTimingReq(pkt, curTick() + latency);
+    //update packet size
+    //we store CXL command in @cmd, CXL packet size in @size,
+    //old size in @cxl_size, old command in @cxl_comm.
+    //In this way, we do not need to update other Classes.
+    pkt->update_size(pkt->cxl_size);
+    pkt->cxl_size = pkt_size;
+    pkt->cmd = pkt->cxl_comm;
+    pkt->cxl_comm = MemCmd::Command(pkt_cmd);
 
     //Send data flit if rollover equals to 4
     //after write request sent
-    //Actually, we only update stats
+    //Actually, we only update stats and packet size
     if (last_rollover == 4){
         last_rollover = 0;
         //PacketPtr data_flit = new Packet(pkt, false, true);
@@ -159,11 +159,17 @@ bool CXLController::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
         //((CXLControllerRequestPort*)memSidePorts[mem_side_port_id])
         //->schedTimingReq(pkt, curTick() + latency +  nextCycle());
         // stats updates
-        pktCount[cpu_side_port_id][mem_side_port_id]++;
-        pktSize[cpu_side_port_id][mem_side_port_id] += pkt_size;
-        transDist[(int)(MemCmd::Command::DataFlit)]++;
+        pkt->update_size(pkt->getSize() + DATA_FLIT);
+        //pktCount[cpu_side_port_id][mem_side_port_id]++;
+        //pktSize[cpu_side_port_id][mem_side_port_id] += (pkt->getSize());
+        //transDist[(int)(MemCmd::Command::DataFlit)]++;
     }
+    ((CXLControllerRequestPort*)memSidePorts[mem_side_port_id])
+                            ->schedTimingReq(pkt, curTick() + latency);
 
+    // before forwarding the packet (and possibly altering it),
+    // remember if we are expecting a response
+    const bool expect_response = pkt->needsResponse();
     // remember where to route the response to
     if (expect_response) {
         assert(routeTo.find(pkt->req) == routeTo.end());
@@ -218,23 +224,43 @@ bool CXLController::recvTimingResp(PacketPtr pkt, PortID mem_side_port_id){
 
     // send the packet through the destination CPU-side port, and pay for
     // any outstanding latency
-    Tick latency = pkt->headerDelay;
-    pkt->headerDelay = 0;
-    cpuSidePorts[cpu_side_port_id]->schedTimingResp(pkt,
-                                        curTick() + latency);
-
+    //Drop CMP command.
+    if (pkt->cmd != MemCmd::Command::Cmp) {
+        Tick latency = pkt->headerDelay;
+        pkt->headerDelay = 0;
+        //restore old size
+        pkt->update_size(pkt->cxl_size);
+        pkt->cmd = MemCmd::Command::ReadResp;
+        DPRINTF(CXLController, "recvTimingResp: send to cache %s 0x%x %d\n",
+             pkt->cmdString(), pkt->getAddr(), pkt->getSize());
+        cpuSidePorts[cpu_side_port_id]->schedTimingResp(pkt,
+                                            curTick() + latency);
+    }
     // remove the request from the routing table
     routeTo.erase(route_lookup);
-
+    //port needs to receive all data, even for cmp command.
     respLayers[cpu_side_port_id]->succeededTiming(packetFinishTime);
-
     // stats updates
     pktCount[cpu_side_port_id][mem_side_port_id]++;
     pktSize[cpu_side_port_id][mem_side_port_id] += pkt_size;
     transDist[pkt_cmd]++;
+    if (pkt->rollover == 4){
+        // stats updates
+        pktCount[cpu_side_port_id][mem_side_port_id]++;
+        transDist[MemCmd::Command::DataFlit]++;
+    }
+    //if (pkt->is_combined)
+    //    transDist[MemCmd::Command::DataFlit]++;
+    ////credit update
+    //if (pkt->is_combined){
+    //    reqLayers[mem_side_port_id]->CreditRelease(ResCrd.begin() + 2, 1);
+    //} else{
+    reqLayers[mem_side_port_id]->CreditRelease(ResCrd.begin() + 2,
+                    5 - pkt->reserved_for_more_DRS -
+                    pkt->reserved_for_more_NDR);
+    //}
 
-    //credit update
-    ResCrd[2] ++;
+    //ResCrd[2] ++;
 
     return true;
 };
@@ -299,7 +325,7 @@ void CXLController::mkReadPkt(PacketPtr pkt, PortID port_id){
     ResCrd[2] -- ;
 
     pkt->cxl_comm = MemCmd::Command::MemRd;
-    pkt->cmd = MemCmd::Command::MemRd;
+    //pkt->cmd = MemCmd::Command::MemRd;
     //Currently, we think the device has infinite queue
     pkt->ReqCrd = 64;
     pkt->ResCrd = 64;
@@ -315,8 +341,7 @@ void CXLController::mkWritePkt(PacketPtr pkt, PortID port_id){
     //currently, we do not see any write partial
     if (pkt->isWriteback()){
         //we can recieve no more than 64 response.
-        //currently, write needs no response.
-        //ResCrd[2] -- ;
+        ResCrd[2] -- ;
 
         pkt->cxl_comm = MemCmd::Command::MemWr;
         //Currently, we think the device has infinite queue
@@ -332,3 +357,35 @@ void CXLController::mkWritePkt(PacketPtr pkt, PortID port_id){
     }
 };
 
+bool CXLController::QueuedReqLayer::TestOutstanding(ResponsePort* src_port){
+        if (cxl_port.size() == 64) {
+          // the port should not be waiting already
+          assert(std::find(waitingForCredit.begin(),
+                          waitingForCredit.end(),
+                          src_port) == waitingForCredit.end());
+
+          // put the port at the end of the retry list waiting for the
+          // layer to be freed up (and in the case of a busy peer, for
+          // that transaction to go through, and then the layer to free
+          // up)
+          waitingForCredit.push_back(src_port);
+          return false;
+        }
+
+        return true;
+      };
+
+bool CXLController::QueuedReqLayer::CreditRelease(
+    std::vector<int>::iterator CrePtr, int count) {
+    if (*CrePtr == 0){
+        for (int i = 0; i < count && !waitingForCredit.empty(); i++)
+        {
+            DPRINTF(CXLController, "recvTimingReq: src %s RETRY\n",
+                waitingForCredit[0]->name());
+            waitingForCredit[0]->sendRetryReq();
+            waitingForCredit.pop_front();
+        }
+    }
+    (*CrePtr)+=count;
+    return true;
+}

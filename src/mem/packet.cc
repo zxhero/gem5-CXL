@@ -235,11 +235,13 @@ MemCmd::commandInfo[] =
     { SET3(IsRead, IsRequest, NeedsResponse), HTMReqResp, "HTMReq" },
     { SET2(IsRead, IsResponse), InvalidCmd, "HTMReqResp" },
     { SET2(IsRead, IsRequest), InvalidCmd, "HTMAbort" },
-    {SET3(IsRead, IsRequest, NeedsResponse), ReadResp, "MemRd"},
+    {SET3(IsRead, IsRequest, NeedsResponse), MemData, "MemRd"},
     {SET6(IsWrite, IsRequest, IsEviction, HasData, NeedsResponse, FromCache),
-    WriteResp, "MemWr"},
+    Cmp, "MemWr"},
     {0, MemWrPtl, "MemWrPtl"},
     {0, DataFlit, "DataFlit"},
+    {SET3(IsRead, IsResponse, HasData), MemData, "MemData"},
+    {SET1(IsResponse), Cmp, "Cmp"}
 };
 
 AddrRange

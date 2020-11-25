@@ -268,13 +268,13 @@ def config_cxl_subsystem(options, system):
                                         num_lanes=options.num_lanes_per_link,
                                         link_speed=options.serial_link_speed,
                                         delay=options.total_ctrl_latency)
-    subsystem.pciexbar = NoncoherentXBar(
+    subsystem.pciexbar = CXLXBar(
         width = 16,
         frontend_latency = 2,
         forward_latency = 1,
         response_latency = 2,
     )
-    subsystem.pciexbar2 = NoncoherentXBar(
+    subsystem.pciexbar2 = CXLXBar(
         width = 16,
         frontend_latency = 2,
         forward_latency = 1,
