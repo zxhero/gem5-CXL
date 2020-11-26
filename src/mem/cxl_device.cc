@@ -360,6 +360,61 @@ void CXLDevice::generate_cxl_rep(PacketPtr pkt){
     pkt->cxl_size = FLIT_SIZE;
 };
 
+CXLRespPacketQueue::CXLRespPacketQueue(
+                                CXLDevice& _em,
+                                 ResponsePort& _cpu_side_port,
+                                 bool force_order,
+                                 const std::string _label)
+    : RespPacketQueue(_em, _cpu_side_port, force_order, _label),
+    cxl_device(_em)
+{
+}
+
+void CXLRespPacketQueue::sendDeferredPacket(){
+    // sanity checks
+    assert(!waitingOnRetry);
+    assert(deferredPacketReady());
+
+    DeferredPacket dp = transmitList.front();
+
+    // take the packet of the list before sending it, as sending of
+    // the packet in some cases causes a new packet to be enqueued
+    // (most notaly when responding to the timing CPU, leading to a
+    // new request hitting in the L1 icache, leading to a new
+    // response)
+    transmitList.pop_front();
+
+    PacketPtr tmp2 = dp.pkt;
+    for (auto ptr = transmitList.begin(); ptr != transmitList.end(); ptr++)
+    {
+        //we may combine any possible packet.
+        if (ptr->tick <= curTick()){
+            cxl_device.combined_pkt++;
+            /*PacketPtr tmp = ptr->pkt;
+
+            if (tmp->cmd == MemCmd::Command::MemData){
+
+            }else{
+
+            }*/
+        }
+    }
+
+
+    // use the appropriate implementation of sendTiming based on the
+    // type of queue
+    waitingOnRetry = !sendTiming(dp.pkt);
+
+    // if we succeeded and are not waiting for a retry, schedule the
+    // next send
+    if (!waitingOnRetry) {
+        schedSendEvent(deferredPacketReadyTime());
+    } else {
+        // put the packet back at the front of the list
+        transmitList.emplace_front(dp);
+    }
+}
+
 void CXLDevice::regStats() {
     BaseXBar::regStats();
     using namespace Stats;

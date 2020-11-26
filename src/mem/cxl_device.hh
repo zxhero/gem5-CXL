@@ -16,6 +16,31 @@ private:
     //  Round-robin counter
     virtual bool recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id);
 };*/
+class CXLDevice;
+
+class CXLRespPacketQueue : public RespPacketQueue
+{
+
+  protected:
+    virtual void sendDeferredPacket() override;
+  public:
+    /**
+     * Create a response packet queue, linked to an event manager, a
+     * CPU-side port, and a label that will be used for functional print
+     * request packets.
+     *
+     * @param _em Event manager used for scheduling this queue
+     * @param _cpu_side_port Cpu_side port used to send the packets
+     * @param force_order Force insertion order for packets with same address
+     * @param _label Label to push on the label stack for print request packets
+     */
+    CXLRespPacketQueue(CXLDevice& _em, ResponsePort& _cpu_side_port,
+                    bool force_order = false,
+                    const std::string _label = "CXLRespPacketQueue");
+    virtual ~CXLRespPacketQueue() { };
+  private:
+    CXLDevice &cxl_device;
+};
 
 class CXLDevice : public BaseXBar
 {
@@ -23,7 +48,7 @@ public:
 
     CXLDevice(const CXLDeviceParams *p);
     virtual ~CXLDevice();
-
+    friend class CXLRespPacketQueue;
 protected:
     //std::vector<QueuedRequestPort*> memSidePorts;
 
