@@ -90,8 +90,8 @@ bool CXLController::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
     //recieve data valid signal from the sender.
     if (!reqLayers[mem_side_port_id]->TestOutstanding(src_port))
     {
-        DPRINTF(CXLController, "recvTimingReq:
-                src %s %s 0x%x WAITING FOR CREDIT\n",
+        DPRINTF(CXLController,
+                "recvTimingReq: src %s %s 0x%x WAITING FOR CREDIT\n",
                 src_port->name(), pkt->cmdString(), pkt->getAddr());
         return false;
     }

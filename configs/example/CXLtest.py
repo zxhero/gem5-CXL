@@ -240,9 +240,9 @@ def config_cxl_subsystem(options, system):
     xbar = system.membus
 
     # create memory ranges for the serial links
-    slar0 = AddrRange(start = '0x20000000', size = '1GB')
-    slar = AddrRange(start = '0x20000000', size = '512MB')
-    slar2 = AddrRange(start = '0x40000000', size = '512MB')
+    slar0 = AddrRange(start = '0x200000000', size = '1GB')
+    slar = AddrRange(start = '0x200000000', size = '512MB')
+    slar2 = AddrRange(start = '0x220000000', size = '512MB')
 
     subsystem.cxl_controller = CXLController(
         width = 16,
@@ -320,13 +320,13 @@ def config_cxl_subsystem(options, system):
     system.mem_ctrl = MemCtrl()
     mc = system.mem_ctrl
     mc.dram = DDR3_1600_8x8()
-    mc.dram.range = AddrRange(start = '0x20000000', size = '512MB')
+    mc.dram.range = AddrRange(start = '0x200000000', size = '512MB')
     mc.port = subsystem.cxl_device.mem_side_ports
 
     system.mem_ctrl2 = MemCtrl()
     mc2 = system.mem_ctrl2
     mc2.dram = DDR3_1600_8x8()
-    mc2.dram.range = AddrRange(start = '0x40000000', size = '512MB')
+    mc2.dram.range = AddrRange(start = '0x220000000', size = '512MB')
     subsystem.cxl_device2.mem_side_ports = mc2.port
 
 class L1Cache(Cache):
