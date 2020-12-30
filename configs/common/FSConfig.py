@@ -90,6 +90,7 @@ def attach_9p(parent, bus):
     parent.attachPciDevice(viopci, bus)
 
 def fillInCmdline(mdesc, template, **kwargs):
+    print(mdesc.rootdev())
     kwargs.setdefault('rootdev', mdesc.rootdev())
     kwargs.setdefault('mem', mdesc.mem())
     kwargs.setdefault('script', mdesc.script())
@@ -657,7 +658,9 @@ def makeDualRoot(full_system, testSystem, driveSystem, dumpfile):
         self.etherlink.int0 = Parent.testsys.tsunami.ethernet.interface
         self.etherlink.int1 = Parent.drivesys.tsunami.ethernet.interface
     else:
-        fatal("Don't know how to connect these system together")
+        self.etherlink.int0 = Parent.testsys.pc.south_bridge.ethernet.interface # x86 Implementation
+        self.etherlink.int1 = Parent.drivesys.pc.south_bridge.ethernet.interface # x86 Implementation
+        #fatal("Don't know how to connect these system together")
 
     if dumpfile:
         self.etherdump = EtherDump(file=dumpfile)

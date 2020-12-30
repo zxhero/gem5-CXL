@@ -91,6 +91,7 @@ def build_test_system(np):
         test_sys = makeLinuxX86System(test_mem_mode, np, bm[0], options.ruby,
                                       cmdline=cmdline)
     elif buildEnv['TARGET_ISA'] == "arm":
+        print(bm[0].rootdev())
         test_sys = makeArmSystem(
             test_mem_mode,
             options.machine_type,
@@ -236,6 +237,14 @@ def build_test_system(np):
 
         #CXLtest.add_options()
         CXLtest.config_cxl_subsystem(options, test_sys)
+
+        #ethernet to rel world for X86
+        #test_sys.etherlink = EtherLink()
+        
+        test_sys.ethertap = EtherTapStub()
+        #test_sys.etherlink.int0 = test_sys.pc.south_bridge.ethernet.interface # x86 Implementation
+        #test_sys.etherlink.int1 = test_sys.ethertap.tap # x86 Implementation
+        test_sys.ethertap.tap = test_sys.pc.south_bridge.ethernet.interface
 
     return test_sys
 

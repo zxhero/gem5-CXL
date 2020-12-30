@@ -24,15 +24,15 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-CC= gcc
-CXX= g++
+#CC= gcc
+#CXX= g++
 
 INCLDIRS= -iquote . -I /usr/local/include
 CCFLAGS= -g -MMD $(INCLDIRS)
 
 default: m5tap
 
-m5tap: tap.o
+m5tap: tap.o faketcp.o
 	$(CXX) $(LFLAGS) -o $@ $^ -lpcap
 
 install: m5tap

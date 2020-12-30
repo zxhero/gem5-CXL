@@ -42,6 +42,9 @@ extern "C" {
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <unistd.h>
+#include <linux/if_tun.h>
+#include <net/if.h>
+#include "faketcp.h"
 
 #include <cerrno>
 #include <csignal>
@@ -140,7 +143,7 @@ Listen(int fd, int port)
 {
     struct sockaddr_in sockaddr;
     sockaddr.sin_family = PF_INET;
-    sockaddr.sin_addr.s_addr = INADDR_ANY;
+    sockaddr.sin_addr.s_addr = inet_addr("127.0.0.1");//INADDR_ANY;
 
     sockaddr.sin_port = htons(port);
     int ret = ::bind(fd, (struct sockaddr *)&sockaddr, sizeof (sockaddr));
@@ -207,8 +210,8 @@ class Tap : public Ethernet
 {
   private:
     char buffer[65536];
-    int fd;
-
+    //int fd;
+    int fd1;
   public:
     Tap(char *device);
     ~Tap();
@@ -277,9 +280,64 @@ PCap::write(const char *data, int len)
     return pcap_inject(pcap, data, len) == len;
 }
 
+/*#define IN 
+#define OUT
+#define TAPDEV "/dev/net/tun"
+#define BUFFERSIZE 1024
+#define FLAG_TUN 	0x01
+#define FLAG_TAP	0x02
+
+int tun_create(char *dev_type, char * dev_name)
+{
+	struct ifreq ifr;
+    int fd = -1;
+	if ((fd=open(TAPDEV, O_RDWR)) < 0)
+	{
+		perror("tap open error");
+		return -1;
+	}
+	
+	memset(&ifr, 0, sizeof(ifr));
+	ifr.ifr_flags = IFF_NO_PI;
+	if(!strncmp(dev_type, "tun", 3))
+	{
+		ifr.ifr_flags |= IFF_TUN;
+		//flag |= FLAG_TUN;	
+	}else if(!strncmp(dev_type, "tap", 3))
+	{
+		ifr.ifr_flags |= IFF_TAP;	
+		//flag |= FLAG_TAP;
+	}
+	if(dev_name != NULL)
+	{
+		strncpy(ifr.ifr_name, dev_name, strlen(dev_name)+1);	
+	}
+ 
+	if (ioctl(fd, TUNSETIFF, (void *)&ifr) < 0){
+		perror("ioctl error:");
+		return -1;
+	}
+	
+	printf("%s is used\r\n", ifr.ifr_name);
+	return fd;
+}*/
+
 Tap::Tap(char *device)
 {
-    fd = open(device, O_RDWR, 0);
+    /*fd1 = Socket(false);
+    Listen(fd1, 6379);
+    fd = Accept(fd1, false);
+    if (fd == -1) {
+        DPRINTF("Connection rejected\n");
+        close(fd);
+    } else {
+        DPRINTF("Connection accepted\n");
+    }*/
+    //fd = open(device, O_RDWR, 0);
+    //fd = tun_create("tap", NULL);
+    char ifname[IFNAMSIZ] = "tap%d";
+    fd = tun_alloc(ifname);
+    printf("allocted tunnel interface %s\n", ifname);
     if (fd < 0)
         panic("could not open %s: %s\n", device, strerror(errno));
 }
@@ -394,13 +452,7 @@ main(int argc, char *argv[])
         host = *argv;
     }
 
-    if (usetap) {
-        if (filter)
-            panic("-f parameter not valid with a tap device!");
-        tap = new Tap(device);
-    } else {
-        tap = new PCap(device, filter);
-    }
+    
 
     pollfd pfds[3];
     pfds[0].fd = Socket(true);
@@ -411,6 +463,14 @@ main(int argc, char *argv[])
         Listen(pfds[0].fd, port);
     else
         Connect(pfds[0].fd, host, port);
+
+    if (usetap) {
+        if (filter)
+            panic("-f parameter not valid with a tap device!");
+        tap = new Tap(device);
+    } else {
+        tap = new PCap(device, filter);
+    }
 
     pfds[1].fd = tap->getfd();
     pfds[1].events = POLLIN;
@@ -450,7 +510,7 @@ main(int argc, char *argv[])
             listen_pfd->revents = 0;
         }
 
-        DPRINTF("tap events: %x\n", tap_pfd->revents);
+        //DPRINTF("tap events: %x\n", tap_pfd->revents);
         if (tap_pfd && tap_pfd->revents) {
             if (tap_pfd->revents & POLLIN) {
                 const char *data; int len;

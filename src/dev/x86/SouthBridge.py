@@ -33,6 +33,7 @@ from m5.objects.I8237 import I8237
 from m5.objects.I8254 import I8254
 from m5.objects.I8259 import I8259
 from m5.objects.Ide import IdeController
+from m5.objects.Ethernet import NSGigE, IGbE_igb, IGbE_e1000
 from m5.objects.PcSpeaker import PcSpeaker
 from m5.SimObject import SimObject
 
@@ -83,6 +84,13 @@ class SouthBridge(SimObject):
     ide.InterruptPin = 1
     ide.LegacyIOBase = x86IOAddress(0)
 
+    #ethernet controller
+    ethernet = IGbE_e1000(pci_bus=0, pci_dev=0, pci_func=0, InterruptLine=1, InterruptPin=2)
+    #ethernet.BAR0LegacyIO = True
+    #IO map
+    #ethernet.BAR0 = 0x10000
+    #ethernet.LegacyIOBase = x86IOAddress(0)
+
     def attachIO(self, bus, dma_ports):
         # Route interrupt signals
         self.pic1.output = self.io_apic.inputs[0]
@@ -109,3 +117,6 @@ class SouthBridge(SimObject):
         self.speaker.pio = bus.mem_side_ports
         self.io_apic.pio = bus.mem_side_ports
         self.io_apic.int_requestor = bus.cpu_side_ports
+        self.ethernet.pio = bus.mem_side_ports
+        self.ethernet.dma = bus.cpu_side_ports
+        #self.ethernet.config = bus.mem_side_ports
