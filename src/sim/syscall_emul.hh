@@ -2361,9 +2361,12 @@ selectFunc(SyscallDesc *desc, ThreadContext *tc, int nfds,
     if (retval == -1)
         return -errno;
 
-    FD_ZERO(reinterpret_cast<fd_set *>((typename OS::fd_set *)readfds));
-    FD_ZERO(reinterpret_cast<fd_set *>((typename OS::fd_set *)writefds));
-    FD_ZERO(reinterpret_cast<fd_set *>((typename OS::fd_set *)errorfds));
+    if(readfds)
+        FD_ZERO(reinterpret_cast<fd_set *>((typename OS::fd_set *)readfds));
+    if(writefds)
+        FD_ZERO(reinterpret_cast<fd_set *>((typename OS::fd_set *)writefds));
+    if(errorfds)
+        FD_ZERO(reinterpret_cast<fd_set *>((typename OS::fd_set *)errorfds));
 
     /**
      * We need to translate the host file descriptor set into a target file
@@ -2526,7 +2529,7 @@ acceptFunc(SyscallDesc *desc, ThreadContext *tc,
     if (!sfdp)
         return -EBADF;
     int sim_fd = sfdp->getSimFD();
-
+    DPRINTF_SYSCALL(Verbose, "acceptFunc: acceptFunc: start\n",NULL);
     /**
      * We poll the socket file descriptor first to guarantee that we do not
      * block on our accept call. The socket can be opened without the
@@ -2537,7 +2540,10 @@ acceptFunc(SyscallDesc *desc, ThreadContext *tc,
     pfd.fd = sim_fd;
     pfd.events = POLLIN | POLLPRI;
     if ((poll(&pfd, 1, 0) == 0) && !(sfdp->getFlags() & OS::TGT_O_NONBLOCK))
-        return SyscallReturn::retry();
+        return -1;
+        //return SyscallReturn::retry();
+
+     DPRINTF_SYSCALL(Verbose, "acceptFunc: acceptFunc: middle\n",NULL);
 
     if (lenPtr) {
         lenBufPtr = new BufferArg(lenPtr, sizeof(socklen_t));
@@ -2554,7 +2560,8 @@ acceptFunc(SyscallDesc *desc, ThreadContext *tc,
     }
 
     host_fd = accept(sim_fd, &sa, &addrLen);
-
+    DPRINTF_SYSCALL(Verbose, "acceptFunc: acceptFunc: %s\n",
+                    sa.sa_data);
     if (host_fd == -1)
         return -errno;
 
@@ -2572,7 +2579,8 @@ acceptFunc(SyscallDesc *desc, ThreadContext *tc,
 
     auto afdp = std::make_shared<SocketFDEntry>(host_fd, sfdp->_domain,
                                                 sfdp->_type, sfdp->_protocol);
-    return p->fds->allocFD(afdp);
+    int retval = p->fds->allocFD(afdp);
+    return retval;
 }
 
 /// Target eventfd() function.

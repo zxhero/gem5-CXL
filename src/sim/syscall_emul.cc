@@ -80,7 +80,7 @@ SyscallReturn
 ignoreWarnOnceFunc(SyscallDesc *desc, ThreadContext *tc)
 {
     static std::unordered_map<SyscallDesc *, bool> bool_map;
-
+    warn("ignoreWarnOnceFunc: ignoring syscall %s(...)", desc->name());
     bool &warned = bool_map[desc];
     if (!warned) {
         warn("ignoring syscall %s(...)\n"
