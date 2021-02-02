@@ -1,0 +1,10 @@
+#!/bin/bash
+
+/sbin/m5 dumpstats
+echo -n "setting up network..."
+/sbin/ifconfig eth0 up
+/sbin/ifconfig eth0 192.168.0.2
+source /etc/profile
+cd /opt/redis-5.0.9/src
+./redis-server ../redis.conf --bind 192.168.0.2 &
+/bin/bash
