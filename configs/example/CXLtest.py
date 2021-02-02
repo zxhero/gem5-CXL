@@ -140,11 +140,6 @@ def add_options(parser):
                         type=int, help="Number of packets to buffer at the\
                         response side of the serial link")
 
-    # Latency of the serial link composed by SER/DES latency (1.6ns [4]) plus
-    # the PCB trace latency (3ns Estimated based on [5])
-    parser.add_option("--link-latency", default='4.6ns', type=str,
-                        help="Latency of the serial links")
-
     # Clock frequency of the each serial link(SerDes) [1]
     parser.add_option("--link-frequency", default='10GHz', type=str,
                         help="Clock Frequency of the serial links")
@@ -157,16 +152,9 @@ def add_options(parser):
                         type=str, help="Clock Frequency of the link\
                         controller")
 
-    # Latency of the serial link controller to process the packets[1][6]
-    # (ClockDomain = 625 Mhz )
-    # used here for calculations only
-    parser.add_option("--link-ctrl-latency", default=4, action="store",
-                        type=int, help="The number of cycles required for the\
-                        controller to process the packet")
-
     # total_ctrl_latency = link_ctrl_latency + link_latency
     # total_ctrl_latency = 4(Cycles) * 1.6 ns +  4.6 ns
-    parser.add_option("--total-ctrl-latency", default='11ns', type=str,
+    parser.add_option("--total-ctrl-latency", default='100ns', type=str,
                         help="The latency experienced by every packet\
                         regardless of size of packet")
 
@@ -174,12 +162,8 @@ def add_options(parser):
     parser.add_option("--num-lanes-per-link", default=16, action="store",
                         type=int, help="Number of lanes per each link")
 
-    # Number of serial links [1]
-    parser.add_option("--num-serial-links", default=4, action="store",
-                        type=int, help="Number of serial links")
-
     # speed of each lane of serial link - SerDes serial interface 10 Gb/s
-    parser.add_option("--serial-link-speed", default=10, action="store",
+    parser.add_option("--serial-link-speed", default=31, action="store",
                         type=int, help="Gbs/s speed of each lane of serial\
                         link")
 
@@ -241,20 +225,20 @@ def config_cxl_subsystem(options, system):
 
     # create memory ranges for the serial links
     slar0 = AddrRange(start = '0x200000000', size = '1GB')
-    slar = AddrRange(start = '0x200000000', size = '512MB')
-    slar2 = AddrRange(start = '0x220000000', size = '512MB')
+    slar = AddrRange(start = '0x220000000', size = '512MB')
+    slar2 = AddrRange(start = '0x200000000', size = '512MB')
 
     subsystem.cxl_controller = CXLController(
         width = 16,
         frontend_latency = 2,
-        forward_latency = 1,
-        response_latency = 2,
+        forward_latency = 3,
+        response_latency = 3,
     )
     subsystem.cxl_device = CXLDevice(
         width = 16,
         frontend_latency = 2,
-        forward_latency = 1,
-        response_latency = 2,
+        forward_latency = 2,
+        response_latency = 4,
     )
     subsystem.cxl_controller.seriallink = SerialLink(ranges=slar0,
                                         req_size=options.link_buffer_size_req,
@@ -283,8 +267,8 @@ def config_cxl_subsystem(options, system):
     subsystem.cxl_device2 = CXLDevice(
         width = 16,
         frontend_latency = 2,
-        forward_latency = 1,
-        response_latency = 2,
+        forward_latency = 2,
+        response_latency = 4,
     )
     subsystem.cxl_device2.seriallink = SerialLink(ranges=slar2,
                                         req_size=options.link_buffer_size_req,
@@ -299,9 +283,12 @@ def config_cxl_subsystem(options, system):
                                         link_speed=options.serial_link_speed,
                                         delay=options.total_ctrl_latency)
 
+    subsystem.cxl_controller.monitor = CommMonitor()
+
     xbar.mem_side_ports = subsystem.cxl_controller.cpu_side_ports
     sl = subsystem.cxl_controller.seriallink
-    subsystem.cxl_controller.mem_side_ports = sl.cpu_side_port
+    subsystem.cxl_controller.mem_side_ports = subsystem.cxl_controller.monitor.cpu_side_port
+    subsystem.cxl_controller.monitor.mem_side_port = sl.cpu_side_port
     sl.mem_side_port = subsystem.pciexbar.cpu_side_ports
 
     #cxl subsystem 1
@@ -320,13 +307,13 @@ def config_cxl_subsystem(options, system):
     system.mem_ctrl = MemCtrl()
     mc = system.mem_ctrl
     mc.dram = DDR3_1600_8x8()
-    mc.dram.range = AddrRange(start = '0x200000000', size = '512MB')
+    mc.dram.range = AddrRange(start = '0x220000000', size = '512MB')
     mc.port = subsystem.cxl_device.mem_side_ports
 
     system.mem_ctrl2 = MemCtrl()
     mc2 = system.mem_ctrl2
     mc2.dram = DDR3_1600_8x8()
-    mc2.dram.range = AddrRange(start = '0x220000000', size = '512MB')
+    mc2.dram.range = AddrRange(start = '0x200000000', size = '512MB')
     subsystem.cxl_device2.mem_side_ports = mc2.port
 
 class L1Cache(Cache):

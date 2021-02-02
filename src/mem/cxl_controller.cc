@@ -6,6 +6,7 @@
 #include "base/random.hh"
 #include "base/trace.hh"
 #include "debug/CXLController.hh"
+#include "debug/CXLPerf.hh"
 #include "mem/cxl_protocol.hh"
 
 CXLController::CXLController(const CXLControllerParams* p) :
@@ -90,8 +91,8 @@ bool CXLController::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
     //recieve data valid signal from the sender.
     if (!reqLayers[mem_side_port_id]->TestOutstanding(src_port))
     {
-        DPRINTF(CXLController,
-                "recvTimingReq: src %s %s 0x%x WAITING FOR CREDIT\n",
+        DPRINTF(CXLPerf,
+                "CXLPerf: src %s %s 0x%x WAITING FOR CREDIT\n",
                 src_port->name(), pkt->cmdString(), pkt->getAddr());
         return false;
     }
@@ -358,22 +359,27 @@ void CXLController::mkWritePkt(PacketPtr pkt, PortID port_id){
 };
 
 bool CXLController::QueuedReqLayer::TestOutstanding(ResponsePort* src_port){
-        if (cxl_port.size() == 64) {
-          // the port should not be waiting already
-          assert(std::find(waitingForCredit.begin(),
-                          waitingForCredit.end(),
-                          src_port) == waitingForCredit.end());
+    if(cxl_port.size() > pkt_outstanding){
+        pkt_outstanding = cxl_port.size();
+        DPRINTF(CXLPerf,
+                "controller sends %d pkt in flight\n", pkt_outstanding);
+    }
+    if (cxl_port.size() == 64) {
+      // the port should not be waiting already
+      assert(std::find(waitingForCredit.begin(),
+                      waitingForCredit.end(),
+                      src_port) == waitingForCredit.end());
 
-          // put the port at the end of the retry list waiting for the
-          // layer to be freed up (and in the case of a busy peer, for
-          // that transaction to go through, and then the layer to free
-          // up)
-          waitingForCredit.push_back(src_port);
-          return false;
-        }
+      // put the port at the end of the retry list waiting for the
+      // layer to be freed up (and in the case of a busy peer, for
+      // that transaction to go through, and then the layer to free
+      // up)
+      waitingForCredit.push_back(src_port);
+      return false;
+    }
 
-        return true;
-      };
+    return true;
+};
 
 bool CXLController::QueuedReqLayer::CreditRelease(
     std::vector<int>::iterator CrePtr, int count) {

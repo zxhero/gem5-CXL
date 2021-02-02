@@ -613,6 +613,9 @@ def makeLinuxX86System(mem_mode, numCPUs=1, mdesc=None, Ruby=False,
     if len(self.mem_ranges) == 2:
         entries.append(X86E820Entry(addr = 0x100000000,
             size = '%dB' % (self.mem_ranges[1].size()), range_type = 1))
+    
+    # Reserve the last 16kB of the 32-bit address space for the m5op interface
+    entries.append(X86E820Entry(addr=0x200000000, size='1GB', range_type=2))
 
     self.workload.e820_table.entries = entries
 

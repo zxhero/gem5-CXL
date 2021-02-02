@@ -128,13 +128,14 @@ protected:
       public:
       QueuedReqLayer(CXLControllerRequestPort& _port, BaseXBar& _xbar,
         const std::string& _name) :
-            ReqLayer(_port, _xbar, _name), cxl_port(_port)
+            ReqLayer(_port, _xbar, _name), cxl_port(_port), pkt_outstanding(0)
         {}
       bool TestOutstanding(ResponsePort* src_port);
       bool CreditRelease(std::vector<int>::iterator CrePtr, int count);
       private:
       CXLController::CXLControllerRequestPort& cxl_port;
       std::deque<ResponsePort*> waitingForCredit;
+      unsigned int pkt_outstanding;
     };
     /**
      * Declare the layers of this crossbar, one vector for requests
