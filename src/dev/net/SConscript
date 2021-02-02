@@ -63,6 +63,7 @@ DebugFlag('EthernetEEPROM')
 DebugFlag('EthernetIntr')
 DebugFlag('EthernetPIO')
 DebugFlag('EthernetSM')
+DebugFlag('EthernetTime')
 
 # Dist gem5
 Source('dist_iface.cc')

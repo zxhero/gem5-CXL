@@ -241,7 +241,7 @@ def build_test_system(np):
         #ethernet to rel world for X86
         #test_sys.etherlink = EtherLink()
         
-        test_sys.ethertap = EtherTapStub()
+        test_sys.ethertap = EtherTap() #EtherTapStub()
         #test_sys.etherlink.int0 = test_sys.pc.south_bridge.ethernet.interface # x86 Implementation
         #test_sys.etherlink.int1 = test_sys.ethertap.tap # x86 Implementation
         test_sys.ethertap.tap = test_sys.pc.south_bridge.ethernet.interface

@@ -50,6 +50,10 @@
 
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <netinet/ip.h>
+#include <arpa/inet.h>
+#include <linux/if_ether.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 
@@ -66,6 +70,7 @@
 #include "dev/net/etherdump.hh"
 #include "dev/net/etherint.hh"
 #include "dev/net/etherpkt.hh"
+#include "debug/EthernetTime.hh"
 
 using namespace std;
 
@@ -399,7 +404,53 @@ EtherTapStub::sendReal(const void *data, size_t len)
 
 #if USE_TUNTAP
 
-EtherTap::EtherTap(const Params *p) : EtherTapBase(p)
+int sethostaddr(const char* dev)
+{
+    struct ifreq ifr;
+    bzero(&ifr, sizeof(ifr));
+    strcpy(ifr.ifr_name, dev);
+    struct sockaddr_in addr;
+    bzero(&addr, sizeof addr);
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, "192.168.0.1", &addr.sin_addr);
+    //addr.sin_addr.s_addr = htonl(0xc0a80001);
+    bcopy(&addr, &ifr.ifr_addr, sizeof addr);
+    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sockfd < 0)
+        return sockfd;
+    int err = 0;
+    // ifconfig tun0 192.168.0.1
+    if ((err = ioctl(sockfd, SIOCSIFADDR, (void *) &ifr)) < 0)
+    {
+        perror("ioctl SIOCSIFADDR");
+        goto done;
+    }
+    // ifup tun0
+    if ((err = ioctl(sockfd, SIOCGIFFLAGS, (void *) &ifr)) < 0)
+    {
+        perror("ioctl SIOCGIFFLAGS");
+        goto done;
+    }
+    ifr.ifr_flags |= IFF_UP;
+    if ((err = ioctl(sockfd, SIOCSIFFLAGS, (void *) &ifr)) < 0)
+    {
+        perror("ioctl SIOCSIFFLAGS");
+        goto done;
+    }
+    // ifconfig tun0 192.168.0.1/24
+    inet_pton(AF_INET, "255.255.255.0", &addr.sin_addr);
+    bcopy(&addr, &ifr.ifr_netmask, sizeof addr);
+    if ((err = ioctl(sockfd, SIOCSIFNETMASK, (void *) &ifr)) < 0)
+    {
+        perror("ioctl SIOCSIFNETMASK");
+        goto done;
+    }
+    done:
+        close(sockfd);
+        return err;
+}
+
+EtherTap::EtherTap(const Params *p) : EtherTapBase(p), connection_count(0)
 {
     int fd = open(p->tun_clone_device.c_str(), O_RDWR | O_NONBLOCK);
     if (fd < 0)
@@ -412,6 +463,9 @@ EtherTap::EtherTap(const Params *p) : EtherTapBase(p)
 
     if (ioctl(fd, TUNSETIFF, (void *)&ifr) < 0)
         panic("Failed to access tap device %s.\n", ifr.ifr_name);
+    
+    if (sethostaddr(ifr.ifr_name) < 0)
+        panic("Failed to config tap device %s ip address.\n", ifr.ifr_name);
     // fd now refers to the tap device.
     tap = fd;
     pollFd(tap);
@@ -441,6 +495,39 @@ EtherTap::recvReal(int revent)
             panic("Failed to read from tap device.\n");
         }
 
+        /*
+        * start timing
+        */
+        {
+            const void* buf = buffer + ETH_HLEN;
+            const struct iphdr* iphdr = static_cast<const struct iphdr*>(buf);
+            const int iphdr_len = iphdr->ihl*4;
+            const void* payload = (const char*)buf + iphdr_len;
+            const struct tcphdr* tcphdr = static_cast<const struct tcphdr*>(payload);
+            char source[INET_ADDRSTRLEN];
+            char dest[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &iphdr->saddr, source, INET_ADDRSTRLEN);
+            inet_ntop(AF_INET, &iphdr->daddr, dest, INET_ADDRSTRLEN);
+            //if (ret >= sizeof(struct iphdr) && iphdr->version == 4)
+                
+            if(strcmp(source, "192.168.0.1") == 0 && strcmp(dest, "192.168.0.2") == 0){
+                //DPRINTF(EthernetTime, "%lu: %s > %s: [%c] \n", curTick(), source, dest, 
+                //        (tcphdr->syn ? 'S' : (tcphdr->fin ? 'F' : '.')));
+                if(tcphdr->syn){
+                    connection_time = curTick();
+                    DPRINTF(EthernetTime, "%lu: %s > %s: [%c] \n", curTick(), source, dest, 
+                        'S');
+                }else if(tcphdr->fin){
+                    DPRINTF(EthernetTime, "%lu: connection %d, %s > %s: [%c] elapsed %lu clock\n", curTick(),
+                        connection_count++, source, dest,
+                        'F', curTick() - connection_time);
+                }else if(tcphdr->rst){
+                    DPRINTF(EthernetTime, "%lu: connection %d, %s > %s: [%c] elapsed %lu clock\n", curTick(),
+                        connection_count++, source, dest,
+                        'R', curTick() - connection_time);
+                }
+            }
+        }
         sendSimulated(buffer, ret);
     }
 }

@@ -187,6 +187,9 @@ class EtherTap : public EtherTapBase
 
     void recvReal(int revent) override;
     bool sendReal(const void *data, size_t len) override;
+  private:
+    int connection_count;
+    Tick connection_time;
 };
 #endif
 
