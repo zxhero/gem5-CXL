@@ -134,6 +134,24 @@ def addNoISAOptions(parser):
     parser.add_option("--l1i_assoc", type="int", default=2)
     parser.add_option("--l2_assoc", type="int", default=8)
     parser.add_option("--l3_assoc", type="int", default=16)
+    parser.add_option("--l1-enable-bank", action="store_true",
+                      help="Enable L1 bank model")
+    parser.add_option("--l2-enable-bank", action="store_true",
+                      help="Enable L2 bank model")
+    parser.add_option("--l3-enable-bank", action="store_true",
+                      help="Enable L3 bank model")
+    parser.add_option("--l1-num-banks", type="int", default="1",
+                      help="L1 bank count.")
+    parser.add_option("--l2-num-banks", type="int", default="1",
+                      help="L2 bank count.")
+    parser.add_option("--l3-num-banks", type="int", default="1",
+                      help="L3 bank count.")
+    parser.add_option("--l1-intlv-bit", type="int", default="0",
+                      help="L1 bank interleave highest bit.")
+    parser.add_option("--l2-intlv-bit", type="int", default="0",
+                      help="L2 bank interleave highest bit.")
+    parser.add_option("--l3-intlv-bit", type="int", default="0",
+                      help="L3 bank interleave highest bit.")
     parser.add_option("--cacheline_size", type="int", default=64)
 
     # Enable Ruby

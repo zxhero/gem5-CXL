@@ -2219,11 +2219,11 @@ socketpairFunc(SyscallDesc *desc, ThreadContext *tc,
 
 template <class OS>
 SyscallReturn
-selectFunc(SyscallDesc *desc, ThreadContext *tc, int nfds,
+_selectFunc(SyscallDesc *desc, ThreadContext *tc, int nfds,
            VPtr<typename OS::fd_set> readfds,
            VPtr<typename OS::fd_set> writefds,
            VPtr<typename OS::fd_set> errorfds,
-           VPtr<typename OS::timeval> timeout)
+           typename OS::timeval* timeout)
 {
     int retval;
 
@@ -2386,6 +2386,51 @@ selectFunc(SyscallDesc *desc, ThreadContext *tc, int nfds,
 
     return retval;
 }
+
+template <class OS>
+SyscallReturn
+selectFunc(SyscallDesc *desc, ThreadContext *tc, int nfds,
+           VPtr<typename OS::fd_set> readfds,
+           VPtr<typename OS::fd_set> writefds,
+           VPtr<typename OS::fd_set> errorfds,
+           VPtr<typename OS::timeval> timeout)
+{
+    if (timeout) {
+        return _selectFunc<OS>(desc, tc,
+                   nfds, readfds, writefds, errorfds,
+                   (typename OS::timeval *)timeout);
+    } else {
+        return _selectFunc<OS>(desc, tc,
+                   nfds, readfds, writefds, errorfds,
+                   (typename OS::timeval *)NULL);
+    }
+}
+
+template <class OS>
+SyscallReturn
+pselect6Func(SyscallDesc *desc, ThreadContext *tc, int nfds,
+           VPtr<typename OS::fd_set> readfds,
+           VPtr<typename OS::fd_set> writefds,
+           VPtr<typename OS::fd_set> errorfds,
+           VPtr<typename OS::timespec> timeout,
+           VPtr<typename OS::sigset_t> sigmask)
+{
+    if (sigmask) {
+        DPRINTF_SYSCALL(Verbose, "pselect6: sigmask has been ignored!", NULL);
+    }
+
+    if (timeout) {
+        typename OS::timeval _timeout;
+        _timeout.tv_sec = timeout->tv_sec;
+        _timeout.tv_usec = timeout->tv_nsec/1000;
+        return _selectFunc<OS>(desc, tc, nfds, readfds,
+                   writefds, errorfds, &_timeout);
+    } else {
+        return _selectFunc<OS>(desc, tc, nfds, readfds,
+                   writefds, errorfds, NULL);
+    }
+}
+
 
 template <class OS>
 SyscallReturn

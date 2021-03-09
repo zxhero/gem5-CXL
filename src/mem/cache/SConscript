@@ -42,6 +42,7 @@ Source('write_queue_entry.cc')
 DebugFlag('Cache')
 DebugFlag('CacheComp')
 DebugFlag('CachePort')
+DebugFlag('CacheBank')
 DebugFlag('CacheRepl')
 DebugFlag('CacheTags')
 DebugFlag('CacheVerbose')
@@ -50,6 +51,7 @@ DebugFlag('HWPrefetch')
 # CacheTags is so outrageously verbose, printing the cache's entire tag
 # array on each timing access, that you should probably have to ask for
 # it explicitly even above and beyond CacheAll.
-CompoundFlag('CacheAll', ['Cache', 'CacheComp', 'CachePort', 'CacheRepl',
+CompoundFlag('CacheAll', ['Cache', 'CacheComp', 'CachePort',
+                          'CacheBank', 'CacheRepl',
                           'CacheVerbose', 'HWPrefetch'])
 

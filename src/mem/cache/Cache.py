@@ -81,6 +81,12 @@ class BaseCache(ClockedObject):
     data_latency = Param.Cycles("Data access latency")
     response_latency = Param.Cycles("Latency for the return path on a miss");
 
+    enable_bank_model = Param.Bool("knob to control if the bank model is used")
+    num_banks = Param.Int(1, "Number of cache data array banks")
+    bank_intlv_high_bit = Param.Int(0,
+        "Cache data array bank interleave highest bit "
+        "(0=automatically aligned to cache line granularity)")
+
     warmup_percentage = Param.Percent(0,
         "Percentage of tags to be touched to warm up the cache")
 

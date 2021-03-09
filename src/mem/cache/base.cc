@@ -45,9 +45,12 @@
 
 #include "mem/cache/base.hh"
 
+#include <cassert>
+
 #include "base/compiler.hh"
 #include "base/logging.hh"
 #include "debug/Cache.hh"
+#include "debug/CacheBank.hh"
 #include "debug/CacheComp.hh"
 #include "debug/CachePort.hh"
 #include "debug/CacheRepl.hh"
@@ -77,6 +80,7 @@ BaseCache::BaseCache(const BaseCacheParams *p, unsigned blk_size)
     : ClockedObject(p),
       cpuSidePort (p->name + ".cpu_side_port", this, "CpuSidePort"),
       memSidePort(p->name + ".mem_side_port", this, "MemSidePort"),
+      bank(p->num_banks),
       mshrQueue("MSHRs", p->mshrs, 0, p->demand_mshr_reserve), // see below
       writeBuffer("write buffer", p->write_buffers, p->mshrs), // see below
       tags(p->tags),
@@ -95,6 +99,13 @@ BaseCache::BaseCache(const BaseCacheParams *p, unsigned blk_size)
       fillLatency(p->data_latency),
       responseLatency(p->response_latency),
       sequentialAccess(p->sequential_access),
+      enableBankModel(p->enable_bank_model),
+      numBanks(p->num_banks),
+      bankIntlvBits(ceilLog2(p->num_banks)),
+      bankIntlvHighBit(p->bank_intlv_high_bit ? p->bank_intlv_high_bit :
+                           ceilLog2(blkSize) + bankIntlvBits - 1),
+      bankIntlvLowBit(bankIntlvHighBit + 1 - bankIntlvBits),
+      bankIntlvMask(((ULL(1) << bankIntlvBits) - 1) << bankIntlvLowBit),
       numTarget(p->tgts_per_mshr),
       forwardSnoops(true),
       clusivity(p->clusivity),
@@ -121,38 +132,83 @@ BaseCache::BaseCache(const BaseCacheParams *p, unsigned blk_size)
     tags->tagsInit();
     if (prefetcher)
         prefetcher->setCache(this);
+
+    if (ULL(1) << bankIntlvBits != numBanks)
+        fatal("%s number of banks is not a power of 2", name());
+
+    uint64_t granularity = ULL(1) << bankIntlvLowBit;
+    if (granularity < blkSize)
+        fatal("%s bank interleave granuarity (%ld) smaller than line size "
+              " (%ld)", name(), granularity, blkSize);
+
+    for (unsigned i = 0; i < bank.size(); ++i) {
+        bank[i] = new CacheBank(csprintf("%s.bank%d", p->name, i));
+    }
 }
 
 BaseCache::~BaseCache()
 {
+    for (unsigned i = 0; i < bank.size(); ++i)
+        delete bank[i];
+
     delete tempBlock;
+}
+
+void
+BaseCache::CacheBank::markInService(Tick finishTick)
+{
+    assert(!inService);
+    nextIdleTick = finishTick;
+    DPRINTF(CacheBank, "In service until Tick %ld\n",
+            nextIdleTick);
+    inService = true;
+}
+
+void
+BaseCache::CacheBank::checkAndUnmarkInService()
+{
+    if (inService && nextIdleTick <= curTick()) {
+        DPRINTF(CacheBank, "Service done, become idle\n");
+        inService = false;
+    }
+}
+
+void
+BaseCache::CacheBank::extendService(Tick extraTick)
+{
+    assert(inService);
+    assert(nextIdleTick > curTick());
+    nextIdleTick += extraTick;
+    DPRINTF(CacheBank, "Extend service to Tick %ld\n",
+            nextIdleTick);
 }
 
 void
 BaseCache::CacheResponsePort::setBlocked()
 {
-    assert(!blocked);
-    DPRINTF(CachePort, "Port is blocking new requests\n");
-    blocked = true;
-    // if we already scheduled a retry in this cycle, but it has not yet
-    // happened, cancel it
-    if (sendRetryEvent.scheduled()) {
-        owner.deschedule(sendRetryEvent);
-        DPRINTF(CachePort, "Port descheduled retry\n");
-        mustSendRetry = true;
-    }
+   assert(!blocked);
+   DPRINTF(CachePort, "Port is blocking new requests\n");
+   blocked = true;
+   // if we already scheduled a retry in this cycle, but it has not yet
+   // happened, cancel it
+   if (sendRetryEvent.scheduled()) {
+       owner.deschedule(sendRetryEvent);
+       DPRINTF(CachePort, "Port descheduled retry\n");
+       mustSendRetry = true;
+   }
 }
+
 
 void
 BaseCache::CacheResponsePort::clearBlocked()
 {
-    assert(blocked);
-    DPRINTF(CachePort, "Port is accepting new requests\n");
-    blocked = false;
-    if (mustSendRetry) {
-        // @TODO: need to find a better time (next cycle?)
-        owner.schedule(sendRetryEvent, curTick() + 1);
-    }
+   assert(blocked);
+   DPRINTF(CachePort, "Port is accepting new requests\n");
+   blocked = false;
+   if (mustSendRetry) {
+       // @TODO: need to find a better time (next cycle?)
+       owner.schedule(sendRetryEvent, curTick() + 1);
+   }
 }
 
 void
@@ -365,12 +421,17 @@ BaseCache::recvTimingReq(PacketPtr pkt)
         // notify before anything else as later handleTimingReqHit might turn
         // the packet in a response
         ppHit->notify(pkt);
+        unsigned bank_id = getBankId(pkt->getAddr());
 
         if (prefetcher && blk && blk->wasPrefetched()) {
             blk->status &= ~BlkHWPrefetched;
         }
 
         handleTimingReqHit(pkt, blk, request_time);
+        // Mark the corresponding bank in service
+        if (enableBankModel) {
+            bank[bank_id]->markInService(clockEdge(lat));
+        }
     } else {
         handleTimingReqMiss(pkt, blk, forward_time, request_time);
 
@@ -470,6 +531,19 @@ BaseCache::recvTimingResp(PacketPtr pkt)
             writeAllocator->allocate() : mshr->allocOnFill();
         blk = handleFill(pkt, blk, writebacks, allocate);
         assert(blk != nullptr);
+
+        if (enableBankModel) {
+            // mark the corresponding bank in service
+            unsigned bank_id = getBankId(pkt->getAddr());
+            if (bank[bank_id]->isBusy()) {
+                bank[bank_id]->extendService(
+                    (lookupLatency + dataLatency) * clockPeriod());
+            } else {
+                bank[bank_id]->markInService(
+                    clockEdge(lookupLatency + dataLatency));
+            }
+        }
+
         ppFill->notify(pkt);
     }
 
@@ -2300,12 +2374,38 @@ BaseCache::CpuSidePort::recvTimingSnoopResp(PacketPtr pkt)
 bool
 BaseCache::CpuSidePort::tryTiming(PacketPtr pkt)
 {
+    // unmark bank in service
+    // NOTE: Ideally, the bank status should be updated immedidately after the
+    // nextIdleTick expires, but we will need to create new events to do that.
+    // Instead, we only check-and-unmark the inService bit before we really
+    // want to know the bank status.
+    // @todo: we need to replace the bank_busy mark/unmark code into an
+    //        event-driven style
+    if (cache->enableBankModel)
+        for (auto b = cache->bank.begin(); b != cache->bank.end(); ++b)
+            ((*b)->checkAndUnmarkInService());
+
+    unsigned bank_id = cache->getBankId(pkt->getAddr());
+    bool bank_busy = cache->enableBankModel && cache->bank[bank_id]->isBusy();
+
     if (cache->system->bypassCaches() || pkt->isExpressSnoop()) {
         // always let express snoop packets through even if blocked
         return true;
-    } else if (blocked || mustSendRetry) {
-        // either already committed to send a retry, or blocked
-        mustSendRetry = true;
+    } else if (blocked || mustSendRetry || bank_busy) {
+        if (blocked || mustSendRetry) {
+            // either already committed to send a retry, or blocked
+            // not because of bank is busy
+            // the cache port is blocked (e.g. no MSHR)
+            // wait until the cache is unblocked and then send a retry
+            mustSendRetry = true;
+        } else {
+            DPRINTF(CachePort, "Cache port %s denying new requests because the"
+                    " accessing bank is busy\n", name());
+            // because of bank is busy
+            // precisely know which tick the service will finish
+            assert(!sendRetryEvent.scheduled());
+            owner.schedule(sendRetryEvent, cache->bank[bank_id]->finishTick());
+        }
         return false;
     }
     mustSendRetry = false;
@@ -2377,6 +2477,15 @@ CpuSidePort::CpuSidePort(const std::string &_name, BaseCache *_cache,
 bool
 BaseCache::MemSidePort::recvTimingResp(PacketPtr pkt)
 {
+    // unmark bank in service
+    // NOTE: Ideally, the bank status should be updated immedidately after the
+    // nextIdleTick expires, but we will need to create new events to do that.
+    // Instead, we only check-and-unmark the inService bit before we really
+    // want to know the bank status.
+    if (cache->enableBankModel)
+        for (auto b = cache->bank.begin(); b != cache->bank.end(); ++b)
+            ((*b)->checkAndUnmarkInService());
+
     cache->recvTimingResp(pkt);
     return true;
 }

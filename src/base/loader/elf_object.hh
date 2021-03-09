@@ -89,7 +89,7 @@ class ElfObject : public ObjectFile
     // The ldMin and ldMax fields are required to know how large of an
     // area is required to map the interpreter.
     Addr ldMin = MaxAddr;
-    Addr ldMax = MaxAddr;
+    Addr ldMax = MinAddr;
 
     /// Helper functions for loadGlobalSymbols() and loadLocalSymbols().
     bool loadSomeSymbols(SymbolTable *symtab, int binding, Addr mask,

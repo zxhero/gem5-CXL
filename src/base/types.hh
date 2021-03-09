@@ -164,6 +164,7 @@ isRomMicroPC(MicroPC upc)
 }
 
 const Addr MaxAddr = (Addr)-1;
+const Addr MinAddr = (Addr)0;
 
 typedef uint64_t RegVal;
 

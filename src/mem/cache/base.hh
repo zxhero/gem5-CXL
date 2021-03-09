@@ -266,13 +266,53 @@ class BaseCache : public ClockedObject
 
         bool mustSendRetry;
 
+        EventFunctionWrapper sendRetryEvent;
+
       private:
 
         void processSendRetry();
-
-        EventFunctionWrapper sendRetryEvent;
-
     };
+
+    /**
+     * Cache data array bank.
+     * Only models bank access contention, does not hold actual data
+     */
+    class CacheBank
+    {
+
+      private:
+        /** Descriptive name (for DPRINTF output) */
+        std::string bankName;
+
+        bool inService;
+
+        Tick nextIdleTick;
+
+      public:
+
+        /** Mark this cache bank in-service until finishTick */
+        void markInService(Tick finishTick);
+
+        /** Check and unmark this cache bank in-service if necessary */
+        void checkAndUnmarkInService();
+
+        /** Extend this cache bank's in-service time by extraTick */
+        void extendService(Tick extraTick);
+
+        CacheBank(const std::string &_name) :
+            bankName(_name),
+            inService(false),
+            nextIdleTick(0)
+        {}
+
+        bool isBusy() const { return inService; }
+
+        Tick finishTick() const { return nextIdleTick; }
+
+        /** Return bank name (for DPRINTF). */
+        const std::string name() const { return bankName; }
+
+     };
 
     /**
      * The CPU-side port extends the base cache response port with access
@@ -309,6 +349,9 @@ class BaseCache : public ClockedObject
     MemSidePort memSidePort;
 
   protected:
+
+    /** Data array banks */
+    std::vector<CacheBank *> bank;
 
     /** Miss status registers */
     MSHRQueue mshrQueue;
@@ -872,6 +915,36 @@ class BaseCache : public ClockedObject
      */
     const bool sequentialAccess;
 
+    /**
+     * The knob to turn on/off cache data array bank model
+     */
+    const bool enableBankModel;
+
+    /**
+     * The number of cache data array banks.
+     */
+    const unsigned numBanks;
+
+    /**
+     * The number of cache data array bank interleave bits
+     */
+    const unsigned bankIntlvBits;
+
+    /**
+     * Cache data array bank interleave high bit
+     */
+    const unsigned bankIntlvHighBit;
+
+    /**
+     * Cache data array bank interleave low bit
+     */
+    const unsigned bankIntlvLowBit;
+
+    /**
+     * Cache data array bank interleve mask
+     */
+    const Addr bankIntlvMask;
+
     /** The number of targets for each MSHR. */
     const int numTarget;
 
@@ -1075,7 +1148,8 @@ class BaseCache : public ClockedObject
 
   public:
     BaseCache(const BaseCacheParams *p, unsigned blk_size);
-    ~BaseCache();
+    /** Non-default destructor is needed to deallocate memory. **/
+    virtual ~BaseCache();
 
     void init() override;
 
@@ -1090,6 +1164,15 @@ class BaseCache : public ClockedObject
     getBlockSize() const
     {
         return blkSize;
+    }
+
+    /**
+     * Return bank ID according to interleave bits
+     */
+    unsigned
+    getBankId(Addr addr) const
+    {
+        return (addr & bankIntlvMask) >> bankIntlvLowBit;
     }
 
     const AddrRangeList &getAddrRanges() const { return addrRanges; }
@@ -1240,7 +1323,6 @@ class BaseCache : public ClockedObject
      * @return True if the cache is coalescing writes
      */
     bool coalesce() const;
-
 
     /**
      * Cache block visitor that writes back dirty cache blocks using

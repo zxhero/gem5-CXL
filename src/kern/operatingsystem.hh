@@ -91,6 +91,7 @@ class OperatingSystem {
         uint64_t iov_len;
     } tgt_iovec;
 
+    typedef unsigned long sigset_t;
 
     /// For getrusage().
     typedef struct {
