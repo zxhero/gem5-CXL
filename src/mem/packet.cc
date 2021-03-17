@@ -235,6 +235,11 @@ MemCmd::commandInfo[] =
     { SET3(IsRead, IsRequest, NeedsResponse), HTMReqResp, "HTMReq" },
     { SET2(IsRead, IsResponse), InvalidCmd, "HTMReqResp" },
     { SET2(IsRead, IsRequest), InvalidCmd, "HTMAbort" },
+     // asyncmem
+    { SET5(IsWrite, NeedsWritable, IsRequest, NeedsResponse, HasData),
+            AsyncMemLdReq, "AsyncMemLdReq" },
+    { SET5(IsWrite, NeedsWritable, IsRequest, NeedsResponse, HasData),
+            AsyncMemWrReq, "AsyncMemWrReq" },
     {SET3(IsRead, IsRequest, NeedsResponse), MemData, "MemRd"},
     {SET6(IsWrite, IsRequest, IsEviction, HasData, NeedsResponse, FromCache),
     Cmp, "MemWr"},

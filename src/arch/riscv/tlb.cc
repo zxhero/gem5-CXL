@@ -331,6 +331,7 @@ TLB::translate(const RequestPtr &req, ThreadContext *tc,
     delayed = false;
 
     if (FullSystem) {
+        // FIXME: fs mode doesn't support our magic spm address
         PrivilegeMode pmode = getMemPriv(tc, mode);
         SATP satp = tc->readMiscReg(MISCREG_SATP);
         if (pmode == PrivilegeMode::PRV_M || satp.mode == AddrXlateMode::BARE)
@@ -376,9 +377,17 @@ TLB::translate(const RequestPtr &req, ThreadContext *tc,
 
         Process * p = tc->getProcessPtr();
 
-        Fault fault = p->pTable->translate(req);
-        if (fault != NoFault)
-            return fault;
+        const Addr vaddr = req->getVaddr();
+        uintptr_t vaddr_prefix = vaddr >> 48;
+        if (vaddr_prefix != 0x1000) {
+            Fault fault = p->pTable->translate(req);
+            if (fault != NoFault)
+                return fault;
+        } else {
+            DPRINTF(TLB, "Translated Private Addr(atomic/timing) %#x \n",
+                    vaddr);
+            req->setPaddr(vaddr);
+        }
 
         return NoFault;
     }
@@ -411,6 +420,7 @@ TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc, Mode mode)
     Addr paddr = vaddr;
 
     if (FullSystem) {
+        // FIXME: fs mode doesn't support our magic spm address
         TLB *tlb = dynamic_cast<TLB *>(tc->getDTBPtr());
 
         PrivilegeMode pmode = tlb->getMemPriv(tc, mode);
@@ -429,21 +439,28 @@ TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc, Mode mode)
         }
     }
     else {
-        Process *process = tc->getProcessPtr();
-        const auto *pte = process->pTable->lookup(vaddr);
+        uintptr_t vaddr_prefix = vaddr >> 48;
+        if (vaddr_prefix != 0x1000) {
+            Process *process = tc->getProcessPtr();
+            const auto *pte = process->pTable->lookup(vaddr);
 
-        if (!pte && mode != Execute) {
-            // Check if we just need to grow the stack.
-            if (process->fixupFault(vaddr)) {
-                // If we did, lookup the entry for the new page.
-                pte = process->pTable->lookup(vaddr);
+            if (!pte && mode != Execute) {
+                // Check if we just need to grow the stack.
+                if (process->fixupFault(vaddr)) {
+                    // If we did, lookup the entry for the new page.
+                    pte = process->pTable->lookup(vaddr);
+                }
             }
+
+            if (!pte)
+                return std::make_shared<GenericPageTableFault>(
+                           req->getVaddr());
+
+            paddr = pte->paddr | process->pTable->pageOffset(vaddr);
+        } else {
+            DPRINTF(TLB, "Translated Private Addr(functional) %#x -> %#x.\n",
+                vaddr, paddr);
         }
-
-        if (!pte)
-            return std::make_shared<GenericPageTableFault>(req->getVaddr());
-
-        paddr = pte->paddr | process->pTable->pageOffset(vaddr);
     }
 
     DPRINTF(TLB, "Translated (functional) %#x -> %#x.\n", vaddr, paddr);

@@ -58,6 +58,15 @@ class L1Cache(Cache):
     mshrs = 4
     tgts_per_mshr = 20
 
+class L1_DCache_AM(L1CacheAM):
+    assoc = 2
+    tag_latency = 2
+    data_latency = 2
+    response_latency = 2
+    enable_bank_model = False
+    mshrs = 4
+    tgts_per_mshr = 20
+
 class L1_ICache(L1Cache):
     is_read_only = True
     # Writeback clean lines as well

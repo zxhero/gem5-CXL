@@ -136,6 +136,9 @@ class MemCmd
         HTMReq,
         HTMReqResp,
         HTMAbort,
+        // AsyncMemory
+        AsyncMemLdReq,
+        AsyncMemWrReq,
         MemRd,
         MemWr,
         MemWrPtl,
@@ -974,6 +977,10 @@ class Packet : public Printable
               MemCmd::InvalidateReq;
         } else if (req->isCacheClean()) {
             return MemCmd::CleanSharedReq;
+        } else if (req->isAsyncMemAload()) {
+            return MemCmd::AsyncMemLdReq;
+        } else if (req->isAsyncMemAstore()) {
+            return MemCmd::AsyncMemWrReq;
         } else
             return MemCmd::WriteReq;
     }

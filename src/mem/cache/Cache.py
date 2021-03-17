@@ -160,3 +160,16 @@ class NoncoherentCache(BaseCache):
     # writebacks would be unnecessary traffic to the main memory.
     writeback_clean = False
 
+class L1CacheAM(Cache):
+    type = 'L1CacheAM'
+    cxx_header = 'mem/cache/l1cacheam.hh'
+
+    # private address for SPM
+    spm_base_addr = Param.Addr(0x1000000000000000, "private SPM address base")
+    spm_init_capacity = Param.Unsigned(2, "number of ways allocated to SPM")
+    latency = Param.Latency('30ns', "Request to response latency")
+    latency_var = Param.Latency('0ns', "Request to response latency variance")
+    # The memory bandwidth limit default is set to 12.8GB/s which is
+    # representative of a x64 DDR3-1600 channel.
+    bandwidth = Param.MemoryBandwidth('12.8GB/s',
+                                      "Combined read and write bandwidth")

@@ -34,6 +34,7 @@
 // Include the type formats
 ##include "standard.isa"
 ##include "mem.isa"
+##include "amem.isa"
 ##include "fp.isa"
 ##include "amo.isa"
 
