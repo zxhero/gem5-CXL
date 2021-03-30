@@ -2531,30 +2531,41 @@ BaseCache::CacheReqPacketQueue::sendDeferredPacket()
     // there should never be any deferred request packets in the
     // queue, instead we resly on the cache to provide the packets
     // from the MSHR queue or write queue
-    assert(deferredPacketReadyTime() == MaxTick);
-
-    // check for request packets (requests & writebacks)
-    QueueEntry* entry = cache.getNextQueueEntry();
-
-    if (!entry) {
-        // can happen if e.g. we attempt a writeback and fail, but
-        // before the retry, the writeback is eliminated because
-        // we snoop another cache's ReadEx.
+    // AsyncMem: may send some deferredPacket
+    // assert(deferredPacketReadyTime() == MaxTick);
+    DeferredPacket dp = transmitList.front();
+    bool isProcessingDp = false;
+    if (deferredPacketReadyTime() <= curTick()) {
+        isProcessingDp = true;
+        transmitList.pop_front();
+        waitingOnRetry = !sendTiming(dp.pkt);
     } else {
-        // let our snoop responses go first if there are responses to
-        // the same addresses
-        if (checkConflictingSnoop(entry->getTarget()->pkt)) {
-            return;
-        }
-        waitingOnRetry = entry->sendPacket(cache);
-    }
+        // check for request packets (requests & writebacks)
+        QueueEntry* entry = cache.getNextQueueEntry();
 
-    // if we succeeded and are not waiting for a retry, schedule the
+        if (!entry) {
+            // can happen if e.g. we attempt a writeback and fail, but
+            // before the retry, the writeback is eliminated because
+            // we snoop another cache's ReadEx.
+        } else {
+            // let our snoop responses go first if there are responses to
+            // the same addresses
+            if (checkConflictingSnoop(entry->getTarget()->pkt)) {
+                return;
+            }
+            waitingOnRetry = entry->sendPacket(cache);
+        }
+    }
+   // if we succeeded and are not waiting for a retry, schedule the
     // next send considering when the next queue is ready, note that
     // snoop responses have their own packet queue and thus schedule
     // their own events
     if (!waitingOnRetry) {
-        schedSendEvent(cache.nextQueueReadyTime());
+        schedSendEvent(min(cache.nextQueueReadyTime(),
+            deferredPacketReadyTime()));
+    } else if (isProcessingDp) {
+        // if (waitingOnRetry && isProcessingDp)
+        transmitList.emplace_front(dp);
     }
 }
 

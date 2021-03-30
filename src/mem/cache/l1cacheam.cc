@@ -71,461 +71,46 @@
 #include "params/L1CacheAM.hh"
 
 L1CacheAM::L1CacheAM(const L1CacheAMParams *p)
-    : Cache(p), spmWays(p->spm_init_capacity),
-      pmemAddr(new uint8_t[p->size]),
-      spmRange(p->spm_base_addr,
-          p->spm_base_addr + spmWays *
-          (p->size / (p->system->cacheLineSize() * p->assoc))),
-      spmstats(*this), latency(p->latency), latency_var(p->latency_var),
-      bandwidth(p->bandwidth), isBusy(false),
-      retryReq(false), retryResp(false),
-      releaseEvent([this]{ spmRelease(); }, name()),
-      dequeueEvent([this]{ spmDequeue(); }, name())
-
+    : Cache(p), spmBaseAddr(p->spm_base_addr),
+    isUnifiedCache(p->is_unified),
+    spmCacheWays(p->spm_init_capacity),
+    forwardLatency(p->asyncmem_forward_delay)
 {
-    fatal_if(spmWays > p->assoc,
+    fatal_if(spmCacheWays > p->assoc,
         "spm ways must smaller than cache associativity");
     numSets = p->size / (p->system->cacheLineSize() * p->assoc);
+    CacheParams spmCacheParams(*static_cast<const CacheParams*>(p));
+    CacheParams normalCacheParams(*static_cast<const CacheParams*>(p));
+    spmCacheParams.assoc = p->spm_init_capacity;
+    normalCacheParams.assoc = p->assoc - p->spm_init_capacity;
+    spmCache = new Cache(&spmCacheParams);
+    normalCache = new Cache(&normalCacheParams);
+
+    // toSpmSidePort.bind(spmCache->getPort("cpu_side"));
+    // toCacheSidePort.bind(normalCache->getPort("cpu_side"));
+    // fromSpmSidePort.bind(spmCache->getPort("mem_side"));
+    // fromCacheSidePort.bind(spmCache->getPort("cpu_side"));
 }
 
 L1CacheAM::~L1CacheAM()
 {
-    delete pmemAddr;
+    delete spmCache;
+    delete normalCache;
 }
 
-Tick L1CacheAM::getSpmLatency() const
-{
-    return latency +
-           (latency_var ? random_mt.random<Tick>(0, latency_var) : 0);
-}
-
-// Add load-locked to tracking list.  Should only be called if the
-// operation is a load and the LLSC flag is set.
-void L1CacheAM::spmTrackLoadLocked(PacketPtr pkt)
-{
-    const RequestPtr &req = pkt->req;
-    Addr paddr = LockedAddr::mask(req->getPaddr());
-
-    // first we check if we already have a locked addr for this
-    // xc.  Since each xc only gets one, we just update the
-    // existing record with the new address.
-    std::list<LockedAddr>::iterator i;
-
-    for (i = spmLockedAddrList.begin(); i != spmLockedAddrList.end(); ++i)
-    {
-        if (i->matchesContext(req))
-        {
-            DPRINTF(LLSC, "Modifying lock record: context %d addr %#x\n",
-                    req->contextId(), paddr);
-            i->addr = paddr;
-            return;
-        }
-    }
-
-    // no record for this xc: need to allocate a new one
-    DPRINTF(LLSC, "Adding lock record: context %d addr %#x\n",
-            req->contextId(), paddr);
-    spmLockedAddrList.push_front(LockedAddr(req));
-}
-
-// Called on *writes* only... both regular stores and
-// store-conditional operations.  Check for conventional stores which
-// conflict with locked addresses, and for success/failure of store
-// conditionals.
-bool L1CacheAM::checkLockedAddrList(PacketPtr pkt)
-{
-    const RequestPtr &req = pkt->req;
-    Addr paddr = LockedAddr::mask(req->getPaddr());
-    bool isLLSC = pkt->isLLSC();
-
-    // Initialize return value.  Non-conditional stores always
-    // succeed.  Assume conditional stores will fail until proven
-    // otherwise.
-    bool allowStore = !isLLSC;
-
-    // Iterate over list.  Note that there could be multiple matching records,
-    // as more than one context could have done a load locked to this location.
-    // Only remove records when we succeed in finding a record for (xc, addr);
-    // then, remove all records with this address.  Failed store-conditionals
-    // do not blow unrelated reservations.
-    std::list<LockedAddr>::iterator i = spmLockedAddrList.begin();
-
-    if (isLLSC)
-    {
-        while (i != spmLockedAddrList.end())
-        {
-            if (i->addr == paddr && i->matchesContext(req))
-            {
-                // it's a store conditional, and as far as the memory system
-                // can tell, the requesting context's lock is still valid.
-                DPRINTF(LLSC, "StCond success: context %d addr %#x\n",
-                        req->contextId(), paddr);
-                allowStore = true;
-                break;
-            }
-            // If we didn't find a match, keep searching!  Someone else
-            // may well have a reservation on this line here but we may
-            // find ours in just a little while.
-            i++;
-        }
-        req->setExtraData(allowStore ? 1 : 0);
-    }
-    // LLSCs that succeeded AND non-LLSC stores both fall into here:
-    if (allowStore)
-    {
-        // We write address paddr.  However, there may be several entries
-        // with a reservation on this address (for other contextIds) and
-        // they must all be removed.
-        i = spmLockedAddrList.begin();
-        while (i != spmLockedAddrList.end())
-        {
-            if (i->addr == paddr)
-            {
-                DPRINTF(LLSC, "Erasing lock record: context %d addr %#x\n",
-                        i->contextId, paddr);
-                ContextID owner_cid = i->contextId;
-                assert(owner_cid != InvalidContextID);
-                ContextID requestor_cid = req->hasContextId() ?
-                    req->contextId() : InvalidContextID;
-                if (owner_cid != requestor_cid)
-                {
-                    ThreadContext *ctx = system->threads[owner_cid];
-                    TheISA::globalClearExclusive(ctx);
-                }
-                i = spmLockedAddrList.erase(i);
-            }
-            else
-            {
-                i++;
-            }
-        }
-    }
-
-    return allowStore;
-}
-
-/////////////////////////////////////////////////////
-//
-// Access path: requests coming in from the CPU side
-//
-/////////////////////////////////////////////////////
-
-void L1CacheAM::spmAccess(PacketPtr pkt)
-{
-    uint8_t* hostAddr = pmemAddr + pkt->getAddr() - spmRange.start();
-    if (pkt->isRead())
-    {
-        assert(!pkt->isWrite());
-        if (pkt->isLLSC())
-        {
-            assert(!pkt->fromCache());
-            // if the packet is not coming from a cache then we have
-            // to do the LL/SC tracking here
-            spmTrackLoadLocked(pkt);
-        }
-        if (pmemAddr)
-        {
-            pkt->setData(hostAddr);
-        }
-        spmstats.numReads[pkt->req->requestorId()]++;
-        spmstats.bytesRead[pkt->req->requestorId()] += pkt->getSize();
-        if (pkt->req->isInstFetch())
-            spmstats.bytesInstRead[pkt->req->requestorId()] += pkt->getSize();
-    }
-    else if (pkt->isInvalidate() || pkt->isClean())
-    {
-        assert(!pkt->isWrite());
-        // in a fastmem system invalidating and/or cleaning packets
-        // can be seen due to cache maintenance requests
-
-        // no need to do anything
-    }
-    else if (pkt->isWrite())
-    {
-        if (spmWriteOK(pkt))
-        {
-            if (pmemAddr)
-            {
-                pkt->writeData(hostAddr);
-                DPRINTF(MemoryAccess, "%s write due to %s\n",
-                        __func__, pkt->print());
-            }
-            assert(!pkt->req->isInstFetch());
-            spmstats.numWrites[pkt->req->requestorId()]++;
-            spmstats.bytesWritten[pkt->req->requestorId()] += pkt->getSize();
-        }
-    }
-    else
-    {
-        panic("Unexpected packet %s", pkt->print());
-    }
-
-    if (pkt->needsResponse())
-    {
-        pkt->makeResponse();
-    }
-}
-
-L1CacheAM::SpmStats::SpmStats(L1CacheAM &_mem)
-    : Stats::Group(&_mem), mem(_mem),
-      bytesRead(this, "bytes_read",
-                "Number of bytes read from this memory"),
-      bytesInstRead(this, "bytes_inst_read",
-                    "Number of instructions bytes read from this memory"),
-      bytesWritten(this, "bytes_written",
-                   "Number of bytes written to this memory"),
-      numReads(this, "num_reads",
-               "Number of read requests responded to by this memory"),
-      numWrites(this, "num_writes",
-                "Number of write requests responded to by this memory"),
-      numOther(this, "num_other",
-               "Number of other requests responded to by this memory"),
-      bwRead(this, "bw_read",
-             "Total read bandwidth from this memory (bytes/s)"),
-      bwInstRead(this, "bw_inst_read",
-                 "Instruction read bandwidth from this memory (bytes/s)"),
-      bwWrite(this, "bw_write",
-              "Write bandwidth from this memory (bytes/s)"),
-      bwTotal(this, "bw_total",
-              "Total bandwidth to/from this memory (bytes/s)")
-{
-}
-
-void L1CacheAM::SpmStats::regStats()
-{
-    using namespace Stats;
-
-    Stats::Group::regStats();
-
-    System *sys = mem.system;
-    assert(sys);
-    const auto max_requestors = sys->maxRequestors();
-
-    bytesRead
-        .init(max_requestors)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        bytesRead.subname(i, sys->getRequestorName(i));
-    }
-
-    bytesInstRead
-        .init(max_requestors)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        bytesInstRead.subname(i, sys->getRequestorName(i));
-    }
-
-    bytesWritten
-        .init(max_requestors)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        bytesWritten.subname(i, sys->getRequestorName(i));
-    }
-
-    numReads
-        .init(max_requestors)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        numReads.subname(i, sys->getRequestorName(i));
-    }
-
-    numWrites
-        .init(max_requestors)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        numWrites.subname(i, sys->getRequestorName(i));
-    }
-
-    numOther
-        .init(max_requestors)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        numOther.subname(i, sys->getRequestorName(i));
-    }
-
-    bwRead
-        .precision(0)
-        .prereq(bytesRead)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        bwRead.subname(i, sys->getRequestorName(i));
-    }
-
-    bwInstRead
-        .precision(0)
-        .prereq(bytesInstRead)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        bwInstRead.subname(i, sys->getRequestorName(i));
-    }
-
-    bwWrite
-        .precision(0)
-        .prereq(bytesWritten)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        bwWrite.subname(i, sys->getRequestorName(i));
-    }
-
-    bwTotal
-        .precision(0)
-        .prereq(bwTotal)
-        .flags(total | nozero | nonan);
-    for (int i = 0; i < max_requestors; i++)
-    {
-        bwTotal.subname(i, sys->getRequestorName(i));
-    }
-
-    bwRead = bytesRead / simSeconds;
-    bwInstRead = bytesInstRead / simSeconds;
-    bwWrite = bytesWritten / simSeconds;
-    bwTotal = (bytesRead + bytesWritten) / simSeconds;
-}
-
-// void L1CacheAM::recvFunctional(PacketPtr pkt)
+// void L2CacheAM::recvFunctional(PacketPtr pkt)
 // {
 //     if (spmRange.contains(pkt->getAddr())) {
 //         DPRINTF(CacheAM,
-//             "%s L1CacheAM: access spm at %lx\n",
+//             "%s L2CacheAM: access spm at %lx\n",
 //             __func__, pkt->getAddr());
 //     } else {
 //         DPRINTF(CacheAM,
-//             "%s L1CacheAM: access cache at %lx\n",
+//             "%s L2CacheAM: access cache at %lx\n",
 //             __func__, pkt->getAddr());
 //         return Cache::recvFunctional(pkt);
 //     }
 // }
-
-void
-L1CacheAM::spmRelease()
-{
-    assert(isBusy);
-    isBusy = false;
-    if (retryReq) {
-        retryReq = false;
-        cpuSidePort.sendRetryReq();
-    }
-}
-
-void
-L1CacheAM::spmDequeue()
-{
-    assert(!packetQueue.empty());
-    DeferredPacket deferred_pkt = packetQueue.front();
-
-    retryResp = !cpuSidePort.sendTimingResp(deferred_pkt.pkt);
-
-    if (!retryResp) {
-        packetQueue.pop_front();
-
-        // if the queue is not empty, schedule the next dequeue event,
-        // otherwise signal that we are drained if we were asked to do so
-        if (!packetQueue.empty()) {
-            // if there were packets that got in-between then we
-            // already have an event scheduled, so use re-schedule
-            reschedule(dequeueEvent,
-                       std::max(packetQueue.front().tick, curTick()), true);
-        } else if (drainState() == DrainState::Draining) {
-            DPRINTF(Drain, "Draining of SimpleMemory complete\n");
-            signalDrainDone();
-        }
-    }
-}
-
-
-
-bool
-L1CacheAM::spmRecvTimingReq(PacketPtr pkt)
-{
-    panic_if(pkt->cacheResponding(), "Should not see packets where cache "
-             "is responding");
-
-    panic_if(!(pkt->isRead() || pkt->isWrite()),
-             "Should only see read and writes at memory controller, "
-             "saw %s to %#llx\n", pkt->cmdString(), pkt->getAddr());
-
-    // we should not get a new request after committing to retry the
-    // current one, but unfortunately the CPU violates this rule, so
-    // simply ignore it for now
-    if (retryReq)
-        return false;
-
-    // if we are busy with a read or write, remember that we have to
-    // retry
-    if (isBusy) {
-        retryReq = true;
-        return false;
-    }
-
-    // technically the packet only reaches us after the header delay,
-    // and since this is a memory controller we also need to
-    // deserialise the payload before performing any write operation
-    Tick receive_delay = pkt->headerDelay + pkt->payloadDelay;
-    pkt->headerDelay = pkt->payloadDelay = 0;
-
-    // update the release time according to the bandwidth limit, and
-    // do so with respect to the time it takes to finish this request
-    // rather than long term as it is the short term data rate that is
-    // limited for any real memory
-
-    // calculate an appropriate tick to release to not exceed
-    // the bandwidth limit
-    Tick duration = pkt->getSize() * bandwidth;
-
-    // only consider ourselves busy if there is any need to wait
-    // to avoid extra events being scheduled for (infinitely) fast
-    // memories
-    if (duration != 0) {
-        schedule(releaseEvent, curTick() + duration);
-        isBusy = true;
-    }
-
-    // go ahead and deal with the packet and put the response in the
-    // queue if there is one
-    bool needsResponse = pkt->needsResponse();
-    recvAtomic(pkt);
-    // turn packet around to go back to requestor if response expected
-    if (needsResponse) {
-        // recvAtomic() should already have turned packet into
-        // atomic response
-        assert(pkt->isResponse());
-
-        Tick when_to_send = curTick() + receive_delay + getSpmLatency();
-
-        // typically this should be added at the end, so start the
-        // insertion sort with the last element, also make sure not to
-        // re-order in front of some existing packet with the same
-        // address, the latter is important as this memory effectively
-        // hands out exclusive copies (shared is not asserted)
-        auto i = packetQueue.end();
-        --i;
-        while (i != packetQueue.begin() && when_to_send < i->tick &&
-               !i->pkt->matchAddr(pkt))
-            --i;
-
-        // emplace inserts the element before the position pointed to by
-        // the iterator, so advance it one step
-        packetQueue.emplace(++i, pkt, when_to_send);
-
-        if (!retryResp && !dequeueEvent.scheduled())
-            schedule(dequeueEvent, packetQueue.back().tick);
-    } else {
-        pendingDelete.reset(pkt);
-    }
-
-    return true;
-}
-
-
 
 void L1CacheAM::recvTimingReq(PacketPtr pkt)
 {
@@ -536,35 +121,56 @@ void L1CacheAM::recvTimingReq(PacketPtr pkt)
         DPRINTF(CacheAM,
             "%s L1CacheAM: async mem load/store at 0x%lx, spm_addr = 0x%lx\n",
             __func__, pkt->getAddr(), spm_addr);
+        // asyncMemCmdPackets.push_back(pkt);
+        memSidePort.schedTimingReq(pkt, clockEdge(forwardLatency));
+        return ;
     }
-    if (spmRange.contains(pkt->getAddr()))
-    {
+
+    const Addr vaddr = pkt->getAddr();
+    uintptr_t vaddr_prefix = vaddr >> 48;
+    bool is_spm_addr = (vaddr_prefix == 0x1000);
+    if (is_spm_addr) {
+        // TODO: just bypass to L2 Cache
+        //spmBypassedPackets.push_back(pkt);
         DPRINTF(CacheAM,
             "%s L1CacheAM: access spm at %lx\n",
             __func__, pkt->getAddr());
-        spmRecvTimingReq(pkt);
+        memSidePort.schedTimingReq(pkt, clockEdge(forwardLatency));
+        return;
     }
-    else
-    {
-        DPRINTF(CacheAM,
-            "%s L1CacheAM: access cache at %lx\n",
-            __func__, pkt->getAddr());
-        Cache::recvTimingReq(pkt);
-    }
+    //     DPRINTF(CacheAM,
+    //         "%s L1CacheAM: access spm cache at %lx\n",
+    //         __func__, pkt->getAddr());
+    //     spmCache->getPort("cpu_side").recvTimingReq(pkt);
+    // }
+    // else {
+    DPRINTF(CacheAM,
+        "%s L1CacheAM: access normal cache at %lx\n",
+        __func__, pkt->getAddr());
+    //     normalCache->getPort("cpu_side").recvTimingReq(pkt);
+    // }
+    return Cache::recvTimingReq(pkt);
 }
 
 Tick L1CacheAM::recvAtomic(PacketPtr pkt)
 {
-    if (spmRange.contains(pkt->getAddr()))
-    {
-        DPRINTF(CacheAM,
-            "%s L1CacheAM: access spm at %lx\n",
-            __func__, pkt->getAddr());
-        spmAccess(pkt);
-        return getSpmLatency();
-    }
-    else
-    {
+    // if (spmRange.contains(pkt->getAddr()))
+    // {
+    //     DPRINTF(CacheAM,
+    //         "%s L1CacheAM: access spm at %lx\n",
+    //         __func__, pkt->getAddr());
+    //     spmAccess(pkt);
+    //     return getSpmLatency();
+    // }
+    // else
+    const Addr vaddr = pkt->getAddr();
+    uintptr_t vaddr_prefix = vaddr >> 48;
+    bool is_spm_addr = (vaddr_prefix == 0x1000);
+    if (is_spm_addr) {
+        // TODO: just bypass to L2 Cache
+        spmBypassedPackets.push_back(pkt);
+        return memSidePort.sendAtomic(pkt);
+    } else {
         DPRINTF(CacheAM,
             "%s L1CacheAM: access cache at %lx\n",
             __func__, pkt->getAddr());

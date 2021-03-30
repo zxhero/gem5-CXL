@@ -163,6 +163,17 @@ class NoncoherentCache(BaseCache):
 class L1CacheAM(Cache):
     type = 'L1CacheAM'
     cxx_header = 'mem/cache/l1cacheam.hh'
+    # private address for SPM
+    spm_base_addr = Param.Addr(0x1000000000000000, "private SPM address base")
+    is_unified = Param.Bool(True, "is SPM Cache and L1D Cache Unified")
+    spm_init_capacity = Param.Unsigned(1,
+        "number of ways allocated to SPM Cache")
+    asyncmem_forward_delay = Param.Cycles('1',
+        "AsyncMem Command forwarding latency")
+
+class L2CacheAM(Cache):
+    type = 'L2CacheAM'
+    cxx_header = 'mem/cache/l2cacheam.hh'
 
     # private address for SPM
     spm_base_addr = Param.Addr(0x1000000000000000, "private SPM address base")
@@ -172,4 +183,4 @@ class L1CacheAM(Cache):
     # The memory bandwidth limit default is set to 12.8GB/s which is
     # representative of a x64 DDR3-1600 channel.
     bandwidth = Param.MemoryBandwidth('12.8GB/s',
-                                      "Combined read and write bandwidth")
+        "Combined read and write bandwidth")

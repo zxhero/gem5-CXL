@@ -85,6 +85,7 @@ def config_cache(options, system):
 
     if options.async_memory:
         dcache_class = L1_DCache_AM
+        l2_cache_class = L2_Cache_AM
 
     # Set the cache line size of the system
     system.cache_line_size = options.cacheline_size

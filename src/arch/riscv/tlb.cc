@@ -387,6 +387,7 @@ TLB::translate(const RequestPtr &req, ThreadContext *tc,
             DPRINTF(TLB, "Translated Private Addr(atomic/timing) %#x \n",
                     vaddr);
             req->setPaddr(vaddr);
+            req->setFlags(Request::UNCACHEABLE);
         }
 
         return NoFault;
@@ -460,6 +461,7 @@ TLB::translateFunctional(const RequestPtr &req, ThreadContext *tc, Mode mode)
         } else {
             DPRINTF(TLB, "Translated Private Addr(functional) %#x -> %#x.\n",
                 vaddr, paddr);
+            req->setFlags(Request::UNCACHEABLE);
         }
     }
 

@@ -139,6 +139,10 @@ class MemCmd
         // AsyncMemory
         AsyncMemLdReq,
         AsyncMemWrReq,
+        AsyncMemLdResp,
+        AsyncMemWrResp,
+        TestFinReq,
+        TestFinResp,
         MemRd,
         MemWr,
         MemWrPtl,
@@ -1054,6 +1058,13 @@ class Packet : public Printable
     {
         assert(!flags.isSet(VALID_SIZE));
 
+        this->size = size;
+        flags.set(VALID_SIZE);
+    }
+
+    void
+    reSetSize(unsigned size)
+    {
         this->size = size;
         flags.set(VALID_SIZE);
     }

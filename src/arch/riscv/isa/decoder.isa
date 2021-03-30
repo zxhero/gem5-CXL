@@ -419,38 +419,20 @@ decode QUADRANT default Unknown::unknown() {
         }
 
         // MEMACC:
-        0x02: decode FUNCT7 {
-            0x0: decode FUNCT3 {
-                format ALoad {
-                    0x0: alb({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                    0x1: alh({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                    0x2: alw({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                    0x3: ald({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                }
+        0x02: decode FUNCT3 {
+            format ALoad {
+                0x0: aload({{
+                    Mem_ud = Rs1_ud;
+                }}, {{
+                    Rd = Mem_ud;
+                }});
             }
-            0x1: decode FUNCT3 {
-                format AStore {
-                    0x0: asb({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                    0x1: ash({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                    0x2: asw({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                    0x3: asd({{
-                        Mem_ud = Rs1_ud;
-                    }});
-                }
+            format AStore {
+                0x1: astore({{
+                    Mem_ud = Rs1_ud;
+                }}, {{
+                    Rd = Mem_ud;
+                }});
             }
         }
 
