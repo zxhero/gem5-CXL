@@ -434,6 +434,13 @@ decode QUADRANT default Unknown::unknown() {
                     Rd = Mem_ud;
                 }});
             }
+            format TestFin {
+                0x2: testfin({{
+                    Mem_ud = Rs1_ud;
+                }}, {{
+                    Rd = Mem_ud;
+                }});
+            }
         }
 
         0x03: decode FUNCT3 {

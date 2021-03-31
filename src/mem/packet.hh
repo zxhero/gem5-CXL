@@ -985,6 +985,8 @@ class Packet : public Printable
             return MemCmd::AsyncMemLdReq;
         } else if (req->isAsyncMemAstore()) {
             return MemCmd::AsyncMemWrReq;
+        } else if (req->isAsyncTestFin()) {
+            return MemCmd::TestFinReq;
         } else
             return MemCmd::WriteReq;
     }

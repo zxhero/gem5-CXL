@@ -200,14 +200,17 @@ class L2CacheAM : public Cache
 
     struct AsyncMemReqEntry {
         bool valid;
+        bool finished;
         uintptr_t spm_addr;
         uintptr_t mem_addr;
         AsyncMemReqEntry(): valid(false),
-            spm_addr(0), mem_addr(0) {}
+            finished(false), spm_addr(0),
+            mem_addr(0) {}
     };
     unsigned int asyncMemReqLength;
     std::vector<AsyncMemReqEntry> asyncMemReqs;
     int allocAsyncMemReq(uint64_t spmAddr, Addr memAddr);
+    bool checkAsyncMemReq(uint64_t handle);
 
   protected:
     void recvTimingResp(PacketPtr pkt) override;

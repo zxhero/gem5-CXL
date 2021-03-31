@@ -78,6 +78,7 @@ class L1CacheAM : public Cache
 
   protected:
     void recvTimingReq(PacketPtr pkt) override;
+    void recvTimingResp(PacketPtr pkt) override;
     Tick recvAtomic(PacketPtr pkt) override;
     // void recvFunctional(PacketPtr pkt) override;
 

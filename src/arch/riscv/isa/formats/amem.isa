@@ -201,3 +201,13 @@ def format AStore(memacc_code, memacc_code2, ea_code={{EA = Rs2;}},
         memacc_code, memacc_code2,\
         mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
 }};
+
+def format TestFin(memacc_code, memacc_code2,
+        ea_code={{EA = 0x1000000000000000;}},
+        offset_code={{;}}, mem_flags=[ASYNCMEM_TESTFIN, UNCACHEABLE],
+        inst_flags=[]) {{
+    (header_output, decoder_output, decode_block, exec_output) = \
+        ALoadStoreBase(name, Name, offset_code, ea_code, \
+        memacc_code, memacc_code2,\
+        mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
+}};

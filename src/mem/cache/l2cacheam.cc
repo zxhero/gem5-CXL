@@ -549,6 +549,23 @@ int L2CacheAM::allocAsyncMemReq(uint64_t spmAddr, Addr memAddr)
     return 0;
 }
 
+bool L2CacheAM::checkAsyncMemReq(unsigned long handle)
+{
+    if (handle > 0) {
+        --handle;
+        if (handle < asyncMemReqs.size()) {
+            bool ret = false;
+            if (asyncMemReqs[handle].valid) {
+                ret = asyncMemReqs[handle].finished;
+                asyncMemReqs[handle].finished = false;
+            }
+            if (ret) asyncMemReqs[handle].valid = false;
+            return ret;
+        }
+    }
+    return false;
+}
+
 void L2CacheAM::recvTimingReq(PacketPtr pkt)
 {
     if (pkt->cmd == MemCmd::AsyncMemWrReq ||
@@ -560,17 +577,41 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
                 "%s L2CacheAM: async mem load/store at 0x%lx,"
                 " spm_addr = 0x%lx\n",
                 __func__, pkt->getAddr(), spm_addr);
+
+        if (pkt->cmd == MemCmd::AsyncMemLdReq)
+        {
+            PacketPtr _pkt =
+                new Packet(pkt->req, MemCmd::ReadReq, 8);
+            _pkt->allocate();
+            memSidePort.schedTimingReq(
+                _pkt, clockEdge(forwardLatency));
+        } else if (pkt->cmd == MemCmd::AsyncMemWrReq) {
+            PacketPtr _pkt =
+                new Packet(pkt->req, MemCmd::WriteReq, 8);
+            _pkt->allocate();
+            _pkt->setData(&pmemAddr[spm_addr - 0x1000000000000000llu]);
+            memSidePort.schedTimingReq(
+                _pkt, clockEdge(forwardLatency));
+        }
+
         int spm_addr_pkt_id = allocAsyncMemReq(spm_addr, pkt->getAddr());
         pkt->makeTimingResponse();
         pkt->setData((uint8_t *)&spm_addr_pkt_id);
         cpuSidePort.schedTimingResp(pkt, clockEdge(forwardLatency));
-        // if (pkt->cmd == MemCmd::AsyncMemLdReq)
-        // {
-        //     memSidePort.schedTimingReq(
-        //         new Packet(pkt->req, MemCmd::ReadReq, blkSize),
-        //         clockEdge(forwardLatency));
-        // }
         return;
+    }
+
+    if (pkt->cmd == MemCmd::TestFinReq) {
+        uint64_t handle = 0;
+        pkt->writeData((uint8_t *)&handle);
+        pkt->makeTimingResponse();
+        uint64_t req_result = checkAsyncMemReq(handle);
+        pkt->setData((uint8_t*)&req_result);
+        cpuSidePort.schedTimingResp(pkt, clockEdge(forwardLatency));
+        DPRINTF(CacheAM,
+                "%s L2CacheAM: testfin(handle=%ld,res=%ld)\n",
+                __func__, handle,req_result);
+        return ;
     }
 
     if (spmRange.contains(pkt->getAddr()))
@@ -593,7 +634,9 @@ void L2CacheAM::recvTimingResp(PacketPtr pkt)
 {
     assert(pkt->isResponse());
 
-    if (pkt->req->isUncacheable() && pkt->cmd == MemCmd::ReadResp)
+    if (pkt->req->isUncacheable() &&
+        (pkt->cmd == MemCmd::ReadResp ||
+        pkt->cmd == MemCmd::WriteResp))
     {
         for (auto amReqIter = asyncMemReqs.begin();
              amReqIter != asyncMemReqs.end();
@@ -603,7 +646,11 @@ void L2CacheAM::recvTimingResp(PacketPtr pkt)
             {
                 pkt->setAddr(amReqIter->spm_addr);
                 pkt->cmd = MemCmd::WriteReq;
-                this->spmRecvTimingReq(pkt);
+                this->spmAccess(pkt);
+                amReqIter->finished = true;
+
+                delete pkt;
+
                 return;
             }
         }

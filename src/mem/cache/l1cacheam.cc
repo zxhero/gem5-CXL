@@ -152,6 +152,19 @@ void L1CacheAM::recvTimingReq(PacketPtr pkt)
     return Cache::recvTimingReq(pkt);
 }
 
+void L1CacheAM::recvTimingResp(PacketPtr pkt)
+{
+    const Addr vaddr = pkt->getAddr();
+    uintptr_t vaddr_prefix = vaddr >> 48;
+    bool is_spm_addr = (vaddr_prefix == 0x1000);
+    if (is_spm_addr) {
+        handleUncacheableWriteResp(pkt);
+        return ;
+    }
+
+    Cache::recvTimingResp(pkt);
+}
+
 Tick L1CacheAM::recvAtomic(PacketPtr pkt)
 {
     // if (spmRange.contains(pkt->getAddr()))
