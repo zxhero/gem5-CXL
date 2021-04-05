@@ -55,6 +55,12 @@ def template ALoadStoreConstructor {{
     {
         %(constructor)s;
         %(offset_code)s;
+
+        // overwrite default flags
+        flags[IsMemRef] = true;
+        flags[IsLoad] = false;
+        flags[IsStore] = true;
+        flags[IsAtomic] = true;
     }
 }};
 
@@ -85,8 +91,8 @@ def ALoadStoreBase(name, Name, offset_code, ea_code, memacc_code,
     completeAccTemplate = eval(exec_template_base + 'CompleteAcc')
 
     # (header_output, decoder_output, decode_block, exec_output)
-    return (LoadStoreDeclare.subst(iop),
-        LoadStoreConstructor.subst(iop),
+    return (ALoadStoreDeclare.subst(iop),
+        ALoadStoreConstructor.subst(iop),
         decode_template.subst(iop),
         fullExecTemplate.subst(iop) +
         initiateAccTemplate.subst(iop) +
@@ -190,7 +196,7 @@ def format ALoad(memacc_code, memacc_code2, ea_code = {{EA = Rs2;}},
     (header_output, decoder_output, decode_block, exec_output) = \
         ALoadStoreBase(name, Name, offset_code, ea_code, \
         memacc_code, memacc_code2,\
-        mem_flags, inst_flags, 'Load', exec_template_base='ALoadStore')
+        mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
 }};
 
 def format AStore(memacc_code, memacc_code2, ea_code={{EA = Rs2;}},

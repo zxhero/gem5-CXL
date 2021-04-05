@@ -196,7 +196,7 @@ class L2CacheAM : public Cache
      * Upstream caches need this packet until true is returned, so
      * hold it for deletion until a subsequent call
      */
-    std::unique_ptr<Packet> pendingDelete;
+    // std::unique_ptr<Packet> pendingDelete;
 
     struct AsyncMemReqEntry {
         bool valid;

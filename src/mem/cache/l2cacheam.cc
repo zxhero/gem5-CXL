@@ -488,11 +488,11 @@ bool L2CacheAM::spmRecvTimingReq(PacketPtr pkt)
     // only consider ourselves busy if there is any need to wait
     // to avoid extra events being scheduled for (infinitely) fast
     // memories
-    if (duration != 0)
-    {
-        schedule(releaseEvent, curTick() + duration);
-        isBusy = true;
-    }
+    // if (duration != 0)
+    // {
+    //     schedule(releaseEvent, curTick() + duration);
+    //     isBusy = true;
+    // }
 
     // go ahead and deal with the packet and put the response in the
     // queue if there is one
@@ -506,28 +506,31 @@ bool L2CacheAM::spmRecvTimingReq(PacketPtr pkt)
         assert(pkt->isResponse());
 
         Tick when_to_send = curTick() + receive_delay + getSpmLatency();
+        cpuSidePort.schedTimingResp(pkt, when_to_send);
 
         // typically this should be added at the end, so start the
         // insertion sort with the last element, also make sure not to
         // re-order in front of some existing packet with the same
         // address, the latter is important as this memory effectively
         // hands out exclusive copies (shared is not asserted)
-        auto i = packetQueue.end();
-        --i;
-        while (i != packetQueue.begin() && when_to_send < i->tick &&
-               !i->pkt->matchAddr(pkt))
-            --i;
+
+        // auto i = packetQueue.end();
+        // --i;
+        // while (i != packetQueue.begin() && when_to_send < i->tick &&
+        //        !i->pkt->matchAddr(pkt))
+        //     --i;
 
         // emplace inserts the element before the position pointed to by
         // the iterator, so advance it one step
-        packetQueue.emplace(++i, pkt, when_to_send);
 
-        if (!retryResp && !dequeueEvent.scheduled())
-            schedule(dequeueEvent, packetQueue.back().tick);
+        //packetQueue.emplace(++i, pkt, when_to_send);
+
+        // if (!retryResp && !dequeueEvent.scheduled())
+        //    schedule(dequeueEvent, packetQueue.back().tick);
     }
     else
     {
-        pendingDelete.reset(pkt);
+        // pendingDelete.reset(pkt);
     }
 
     return true;
