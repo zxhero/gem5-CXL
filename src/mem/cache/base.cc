@@ -71,7 +71,7 @@ BaseCache::CacheResponsePort::CacheResponsePort(const std::string &_name,
                                           const std::string &_label)
     : QueuedResponsePort(_name, _cache, queue),
       queue(*_cache, *this, true, _label),
-      blocked(false), mustSendRetry(false),
+      blocked(false), mustSendRetry(false), innerReqRetry(false),
       sendRetryEvent([this]{ processSendRetry(); }, _name)
 {
 }
@@ -218,7 +218,12 @@ BaseCache::CacheResponsePort::processSendRetry()
 
     // reset the flag and call retry
     mustSendRetry = false;
-    sendRetryReq();
+    if (innerReqRetry) {
+        innerReqRetry = false;
+        processInnerReqEvent();
+    } else {
+        sendRetryReq();
+    }
 }
 
 Addr
@@ -2357,6 +2362,26 @@ BaseCache::regProbePoints()
 // CpuSidePort
 //
 ///////////////
+void BaseCache::CpuSidePort::processInnerSendEvent()
+{
+    PacketPtr pkt = innerResponse.front();
+    innerResponse.pop();
+
+    cache->recvInnerTimingResp(pkt);
+}
+
+void BaseCache::CpuSidePort::processInnerReqEvent()
+{
+    assert(innerPkts.size() > 0);
+    PacketPtr pkt = innerPkts.front();
+
+    if (this->recvInnerTimingReq(pkt)) {
+        innerPkts.pop();
+    } else {
+        innerReqRetry = true;
+    }
+}
+
 bool
 BaseCache::CpuSidePort::recvTimingSnoopResp(PacketPtr pkt)
 {
@@ -2413,6 +2438,12 @@ BaseCache::CpuSidePort::tryTiming(PacketPtr pkt)
 }
 
 bool
+BaseCache::CpuSidePort::recvInnerTimingReq(PacketPtr pkt)
+{
+    innerRequest.insert(pkt->req);
+    return recvTimingReq(pkt);
+}
+bool
 BaseCache::CpuSidePort::recvTimingReq(PacketPtr pkt)
 {
     assert(pkt->isRequest());
@@ -2430,6 +2461,12 @@ BaseCache::CpuSidePort::recvTimingReq(PacketPtr pkt)
     return false;
 }
 
+Tick
+BaseCache::CpuSidePort::recvInnerAtomic(PacketPtr pkt)
+{
+    innerRequest.insert(pkt->req);
+    return recvAtomic(pkt);
+}
 Tick
 BaseCache::CpuSidePort::recvAtomic(PacketPtr pkt)
 {
@@ -2465,7 +2502,9 @@ BaseCache::CpuSidePort::getAddrRanges() const
 BaseCache::
 CpuSidePort::CpuSidePort(const std::string &_name, BaseCache *_cache,
                          const std::string &_label)
-    : CacheResponsePort(_name, _cache, _label), cache(_cache)
+    : CacheResponsePort(_name, _cache, _label), cache(_cache), em(*_cache),
+    sendInnerEvent([this]{ processInnerSendEvent(); }, _name),
+    reqInnerEvent([this]{ processInnerReqEvent(); }, _name)
 {
 }
 

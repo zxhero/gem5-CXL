@@ -47,12 +47,14 @@
 #define __MEM_CACHE_L2CACHEAM_HH__
 
 #include <cstdint>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "base/types.hh"
 #include "mem/cache/cache.hh"
 #include "mem/packet.hh"
+#include "mem/request.hh"
 #include "mem/simple_mem.hh"
 
 class CacheBlk;
@@ -65,6 +67,7 @@ class MSHR;
  */
 class L2CacheAM : public Cache
 {
+    RequestorID innerRequestorId;
     /**
      * A deferred packet stores a packet along with its scheduled
      * transmission time
@@ -216,6 +219,7 @@ class L2CacheAM : public Cache
     void recvTimingResp(PacketPtr pkt) override;
     void recvTimingReq(PacketPtr pkt) override;
     Tick recvAtomic(PacketPtr pkt) override;
+    void recvInnerTimingResp(PacketPtr pkt) override;
     // void recvFunctional(PacketPtr pkt) override;
 
   public:

@@ -71,7 +71,8 @@
 #include "params/L2CacheAM.hh"
 
 L2CacheAM::L2CacheAM(const L2CacheAMParams *p)
-    : Cache(p), spmWays(p->spm_init_capacity),
+    : Cache(p), innerRequestorId(p->system->getRequestorId(this, "inner")),
+      spmWays(p->spm_init_capacity),
       pmemAddr(new uint8_t[p->size]),
       spmRange(p->spm_base_addr,
         p->spm_base_addr + spmWays *
@@ -571,6 +572,7 @@ bool L2CacheAM::checkAsyncMemReq(unsigned long handle)
 
 void L2CacheAM::recvTimingReq(PacketPtr pkt)
 {
+    DPRINTF(CacheAM, "recvReq pkt at tick %ld\n", curTick());
     if (pkt->cmd == MemCmd::AsyncMemWrReq ||
         pkt->cmd == MemCmd::AsyncMemLdReq)
     {
@@ -589,12 +591,18 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
             memSidePort.schedTimingReq(
                 _pkt, clockEdge(forwardLatency));
         } else if (pkt->cmd == MemCmd::AsyncMemWrReq) {
-            PacketPtr _pkt =
-                new Packet(pkt->req, MemCmd::WriteReq, 8);
+            // PacketPtr _pkt =
+            //     new Packet(pkt->req, MemCmd::WriteReq, 8);
+            // _pkt->allocate();
+            // _pkt->setData(&pmemAddr[spm_addr - 0x1000000000000000llu]);
+            // memSidePort.schedTimingReq(
+            //     _pkt, clockEdge(forwardLatency));
+            RequestPtr _inner_req = std::make_shared<Request>(
+                spm_addr, 8, Request::UNCACHEABLE, innerRequestorId
+            );
+            PacketPtr _pkt = Packet::createRead(_inner_req);
             _pkt->allocate();
-            _pkt->setData(&pmemAddr[spm_addr - 0x1000000000000000llu]);
-            memSidePort.schedTimingReq(
-                _pkt, clockEdge(forwardLatency));
+            cpuSidePort.schedInnerTimingReq(_pkt, clockEdge(forwardLatency));
         }
 
         int spm_addr_pkt_id = allocAsyncMemReq(spm_addr, pkt->getAddr());
@@ -633,6 +641,41 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
     }
 }
 
+void L2CacheAM::recvInnerTimingResp(PacketPtr pkt)
+{
+    DPRINTF(CacheAM, "recvInnerResp at tick %ld\n", curTick());
+    for (auto amReqIter = asyncMemReqs.begin();
+         amReqIter != asyncMemReqs.end();
+         ++amReqIter)
+    {
+        if (amReqIter->valid && amReqIter->spm_addr == pkt->getAddr())
+        {
+            if (pkt->cmd == MemCmd::ReadResp) {
+                RequestPtr _inner_req = std::make_shared<Request>(
+                    amReqIter->mem_addr, 8, Request::UNCACHEABLE,
+                    innerRequestorId
+                );
+                PacketPtr _pkt = Packet::createWrite(_inner_req);
+                _pkt->allocate();
+                uint64_t data;
+                pkt->writeData((uint8_t*)&data);
+                _pkt->setData((uint8_t*)&data);
+                memSidePort.schedTimingReq(
+                    _pkt, clockEdge(forwardLatency));
+            } else {
+                amReqIter->finished = true;
+            }
+
+            delete pkt;
+
+            return;
+        }
+    }
+
+    // should not reach here!
+    assert(0);
+}
+
 void L2CacheAM::recvTimingResp(PacketPtr pkt)
 {
     assert(pkt->isResponse());
@@ -647,10 +690,21 @@ void L2CacheAM::recvTimingResp(PacketPtr pkt)
         {
             if (amReqIter->valid && amReqIter->mem_addr == pkt->getAddr())
             {
-                pkt->setAddr(amReqIter->spm_addr);
-                pkt->cmd = MemCmd::WriteReq;
-                this->spmAccess(pkt);
-                amReqIter->finished = true;
+                if (pkt->cmd == MemCmd::ReadResp) {
+                    RequestPtr _inner_req = std::make_shared<Request>(
+                        amReqIter->spm_addr, 8, Request::UNCACHEABLE,
+                        innerRequestorId
+                    );
+                    PacketPtr _pkt = Packet::createWrite(_inner_req);
+                    _pkt->allocate();
+                    uint64_t data;
+                    pkt->writeData((uint8_t*)&data);
+                    _pkt->setData((uint8_t*)&data);
+                    cpuSidePort.schedInnerTimingReq(_pkt,
+                        clockEdge(forwardLatency));
+                } else {
+                    amReqIter->finished = true;
+                }
 
                 delete pkt;
 

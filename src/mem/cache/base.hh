@@ -48,7 +48,9 @@
 
 #include <cassert>
 #include <cstdint>
+#include <queue>
 #include <string>
+#include <unordered_set>
 
 #include "base/addr_range.hh"
 #include "base/statistics.hh"
@@ -265,9 +267,11 @@ class BaseCache : public ClockedObject
         bool blocked;
 
         bool mustSendRetry;
+        bool innerReqRetry;
 
         EventFunctionWrapper sendRetryEvent;
 
+        virtual void processInnerReqEvent() {}
       private:
 
         void processSendRetry();
@@ -321,9 +325,16 @@ class BaseCache : public ClockedObject
     class CpuSidePort : public CacheResponsePort
     {
       private:
-
         // a pointer to our specific cache implementation
         BaseCache *cache;
+        std::unordered_set<RequestPtr> innerRequest;
+        std::queue<PacketPtr> innerPkts;
+
+        std::queue<PacketPtr> innerResponse;
+        EventManager& em;
+        EventFunctionWrapper sendInnerEvent;
+
+        void processInnerSendEvent();
 
       protected:
         virtual bool recvTimingSnoopResp(PacketPtr pkt) override;
@@ -338,11 +349,32 @@ class BaseCache : public ClockedObject
 
         virtual AddrRangeList getAddrRanges() const override;
 
+        virtual bool recvInnerTimingReq(PacketPtr pkt);
+        virtual Tick recvInnerAtomic(PacketPtr pkt);
+
+        EventFunctionWrapper reqInnerEvent;
+        void processInnerReqEvent() override;
+
       public:
 
         CpuSidePort(const std::string &_name, BaseCache *_cache,
                     const std::string &_label);
 
+        virtual void schedTimingResp(PacketPtr pkt, Tick when)
+        {
+            if (innerRequest.count(pkt->req)) {
+                innerResponse.push(pkt);
+                innerRequest.erase(pkt->req);
+                em.schedule(&sendInnerEvent, when);
+            } else {
+                respQueue.schedSendTiming(pkt, when);
+            }
+        }
+        virtual void schedInnerTimingReq(PacketPtr pkt, Tick when)
+        {
+            innerPkts.push(pkt);
+            em.schedule(&reqInnerEvent, when);
+        }
     };
 
     CpuSidePort cpuSidePort;
@@ -566,6 +598,11 @@ class BaseCache : public ClockedObject
      * @param pkt The response packet
      */
     virtual void recvTimingResp(PacketPtr pkt);
+    /**
+     * Handles a response from inner bus.
+     * @param pkt The response packet
+     */
+    virtual void recvInnerTimingResp(PacketPtr pkt) {assert(0);}
 
     /**
      * Snoops bus transactions to maintain coherence.
