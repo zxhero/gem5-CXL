@@ -319,7 +319,7 @@ if main['GCC'] or main['CLANG']:
     main.Append(CCFLAGS=['-Wall', '-Wundef', '-Wextra',
                          '-Wno-sign-compare', '-Wno-unused-parameter'])
     # We always compile using C++11
-    main.Append(CXXFLAGS=['-std=c++11'])
+    main.Append(CXXFLAGS=['-std=gnu++11'])
     if sys.platform.startswith('freebsd'):
         main.Append(CCFLAGS=['-I/usr/local/include'])
         main.Append(CXXFLAGS=['-I/usr/local/include'])

@@ -56,6 +56,45 @@
 using namespace std;
 using namespace TheISA;
 
+static std::vector< std::pair<int, Tick> > records;
+void register_TCP(int fd){
+    
+    records.push_back(std::make_pair(fd, curTick()));
+
+    //std::cout<<records.size()<<"\n";
+};
+
+Tick TCP_last_time(int fd){
+    //std::cout<<records.size()<<"\n";
+    for(std::vector< std::pair<int, Tick> >::iterator ptr = records.begin(); ptr != records.end(); ptr++){
+        //std::cout<<ptr->first<<"\n";
+        if(ptr->first == fd){
+            return curTick() - ptr->second;
+        }
+    }
+    return 0;
+};
+
+void remove_TCP(int fd){
+    for(std::vector< std::pair<int, Tick> >::iterator ptr = records.begin(); ptr != records.end(); ptr++){
+        //std::cout<<ptr->first<<"\n";
+        if(ptr->first == fd){
+            records.erase(ptr);
+            return;
+        }
+    }
+}
+
+bool is_TCP(int fd){
+    for(std::vector< std::pair<int, Tick> >::iterator ptr = records.begin(); ptr != records.end(); ptr++){
+        //std::cout<<ptr->first<<"\n";
+        if(ptr->first == fd){
+            return true;
+        }
+    }
+    return false;
+}
+
 void
 warnUnsupportedOS(std::string syscall_name)
 {
@@ -280,6 +319,10 @@ SyscallReturn
 closeFunc(SyscallDesc *desc, ThreadContext *tc, int tgt_fd)
 {
     auto p = tc->getProcessPtr();
+    if(is_TCP(tgt_fd)){
+        DPRINTF_SYSCALL(Verbose, "close: TCP connection last for %7d cycle\n",TCP_last_time(tgt_fd));
+        remove_TCP(tgt_fd);
+    }
     return p->fds->closeFDEntry(tgt_fd);
 }
 
