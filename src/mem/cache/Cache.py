@@ -81,6 +81,12 @@ class BaseCache(ClockedObject):
     data_latency = Param.Cycles("Data access latency")
     response_latency = Param.Cycles("Latency for the return path on a miss");
 
+    enable_bank_model = Param.Bool("knob to control if the bank model is used")
+    num_banks = Param.Int(1, "Number of cache data array banks")
+    bank_intlv_high_bit = Param.Int(0,
+        "Cache data array bank interleave highest bit "
+        "(0=automatically aligned to cache line granularity)")
+
     warmup_percentage = Param.Percent(0,
         "Percentage of tags to be touched to warm up the cache")
 
@@ -154,3 +160,27 @@ class NoncoherentCache(BaseCache):
     # writebacks would be unnecessary traffic to the main memory.
     writeback_clean = False
 
+class L1CacheAM(Cache):
+    type = 'L1CacheAM'
+    cxx_header = 'mem/cache/l1cacheam.hh'
+    # private address for SPM
+    spm_base_addr = Param.Addr(0x1000000000000000, "private SPM address base")
+    is_unified = Param.Bool(True, "is SPM Cache and L1D Cache Unified")
+    spm_init_capacity = Param.Unsigned(1,
+        "number of ways allocated to SPM Cache")
+    asyncmem_forward_delay = Param.Cycles('1',
+        "AsyncMem Command forwarding latency")
+
+class L2CacheAM(Cache):
+    type = 'L2CacheAM'
+    cxx_header = 'mem/cache/l2cacheam.hh'
+
+    # private address for SPM
+    spm_base_addr = Param.Addr(0x1000000000000000, "private SPM address base")
+    spm_init_capacity = Param.Unsigned(2, "number of ways allocated to SPM")
+    latency = Param.Latency('30ns', "Request to response latency")
+    latency_var = Param.Latency('0ns', "Request to response latency variance")
+    # The memory bandwidth limit default is set to 12.8GB/s which is
+    # representative of a x64 DDR3-1600 channel.
+    bandwidth = Param.MemoryBandwidth('12.8GB/s',
+        "Combined read and write bandwidth")

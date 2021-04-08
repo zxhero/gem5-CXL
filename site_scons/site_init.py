@@ -42,24 +42,25 @@ from __future__ import print_function
 from gem5_python_paths import extra_python_paths
 
 # Check for recent-enough Python and SCons versions.
-try:
-    EnsureSConsVersion(3, 0, 0)
-except SystemExit as e:
-    print("""
-For more details, see:
-    http://gem5.org/documentation/general_docs/building
-""")
-    raise
-
-# pybind11 requires python 2.7
-try:
-    EnsurePythonVersion(2, 7)
-except SystemExit as e:
-    print ("""
-You can use a non-default installation of the Python interpreter by
-rearranging your PATH so that scons finds the non-default 'python' and
-'python-config' first.
-""")
-    raise
+#try:
+#     EnsureSConsVersion(3, 0, 0)
+#except SystemExit as e:
+#    print("""
+#For more details, see:
+#    http://gem5.org/documentation/general_docs/building
+#""")
+#    raise
+#
+## pybind11 requires python 2.7
+#try:
+#    EnsurePythonVersion(3)
+#except SystemExit as e:
+#    print ("""
+#You can use a non-default installation of the Python interpreter by
+#rearranging your PATH so that scons finds the non-default 'python' and
+#'python-config' first.
+#""")
+#    raise
 
 sys.path[1:1] = extra_python_paths
+print(sys.path)

@@ -32,6 +32,8 @@ SimObject('Cache.py')
 
 Source('base.cc')
 Source('cache.cc')
+Source('l1cacheam.cc')
+Source('l2cacheam.cc')
 Source('cache_blk.cc')
 Source('mshr.cc')
 Source('mshr_queue.cc')
@@ -40,8 +42,10 @@ Source('write_queue.cc')
 Source('write_queue_entry.cc')
 
 DebugFlag('Cache')
+DebugFlag('CacheAM')
 DebugFlag('CacheComp')
 DebugFlag('CachePort')
+DebugFlag('CacheBank')
 DebugFlag('CacheRepl')
 DebugFlag('CacheTags')
 DebugFlag('CacheVerbose')
@@ -50,6 +54,7 @@ DebugFlag('HWPrefetch')
 # CacheTags is so outrageously verbose, printing the cache's entire tag
 # array on each timing access, that you should probably have to ask for
 # it explicitly even above and beyond CacheAll.
-CompoundFlag('CacheAll', ['Cache', 'CacheComp', 'CachePort', 'CacheRepl',
+CompoundFlag('CacheAll', ['Cache', 'CacheComp', 'CachePort',
+                          'CacheAM', 'CacheBank', 'CacheRepl',
                           'CacheVerbose', 'HWPrefetch'])
 

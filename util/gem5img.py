@@ -134,6 +134,7 @@ def findPartOffset(devFile, fileName, partition):
         print out
         exit(returncode)
     lines = out.splitlines()
+    lines = [line for line in lines if line.strip() != ""]
     # Make sure the first few lines of the output look like what we expect.
     assert(lines[0][0] == '#' or lines[0].startswith('label:'))
     assert(lines[1] == 'unit: sectors' or lines[1].startswith('label-id:'))
@@ -148,6 +149,7 @@ def findPartOffset(devFile, fileName, partition):
         chunks = lines[5].split()
     # The fourth chunk is the offset of the partition in sectors followed by
     # a comma. We drop the comma and convert that to an integer.
+    print(chunks)
     sectors = string.atoi(chunks[3][:-1])
     # Free the loopback device and return an answer.
     dev.destroy()

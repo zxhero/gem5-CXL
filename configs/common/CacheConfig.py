@@ -83,6 +83,10 @@ def config_cache(options, system):
         if buildEnv['TARGET_ISA'] in ['x86', 'riscv']:
             walk_cache_class = PageTableWalkerCache
 
+    if options.async_memory:
+        dcache_class = L1_DCache_AM
+        l2_cache_class = L2_Cache_AM
+
     # Set the cache line size of the system
     system.cache_line_size = options.cacheline_size
 
@@ -99,7 +103,11 @@ def config_cache(options, system):
         # same clock as the CPUs.
         system.l2 = l2_cache_class(clk_domain=system.cpu_clk_domain,
                                    size=options.l2_size,
-                                   assoc=options.l2_assoc)
+                                   assoc=options.l2_assoc,
+                                   enable_bank_model=options.l2_enable_bank,
+                                   num_banks=options.l2_num_banks,
+                                   bank_intlv_high_bit=options.l2_intlv_bit)
+
 
         system.tol2bus = L2XBar(clk_domain = system.cpu_clk_domain)
         system.l2.cpu_side = system.tol2bus.master
@@ -119,9 +127,15 @@ def config_cache(options, system):
     for i in range(options.num_cpus):
         if options.caches:
             icache = icache_class(size=options.l1i_size,
-                                  assoc=options.l1i_assoc)
+                                  assoc=options.l1i_assoc,
+                                  enable_bank_model=options.l1_enable_bank,
+                                  num_banks=options.l1_num_banks,
+                                  bank_intlv_high_bit=options.l1_intlv_bit)
             dcache = dcache_class(size=options.l1d_size,
-                                  assoc=options.l1d_assoc)
+                                  assoc=options.l1d_assoc,
+                                  enable_bank_model=options.l1_enable_bank,
+                                  num_banks=options.l1_num_banks,
+                                  bank_intlv_high_bit=options.l1_intlv_bit)
 
             # If we have a walker cache specified, instantiate two
             # instances here

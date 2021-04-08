@@ -127,8 +127,11 @@ InvalidOpcode::invoke(ThreadContext *tc, const StaticInstPtr &inst)
     if (FullSystem) {
         X86Fault::invoke(tc, inst);
     } else {
-        panic("Unrecognized/invalid instruction executed:\n %s",
-                inst->machInst);
+        PCState pcState = tc->pcState();
+        Addr pc = pcState.pc();
+        DPRINTF(Faults, "disassemble: %s\n", inst->disassemble(pc, nullptr));
+        panic("Unrecognized/invalid instruction executed(pc=%#x):\n %s",
+               pc, inst->machInst);
     }
 }
 

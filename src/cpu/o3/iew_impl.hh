@@ -1067,7 +1067,7 @@ DefaultIEW<Impl>::dispatchInsts(ThreadID tid)
         // Otherwise issue the instruction just fine.
         if (inst->isAtomic()) {
             DPRINTF(IEW, "[tid:%i] Issue: Memory instruction "
-                    "encountered, adding to LSQ.\n", tid);
+                    "encountered, adding to LSQ(Atomic).\n", tid);
 
             ldstQueue.insertStore(inst);
 
@@ -1085,7 +1085,7 @@ DefaultIEW<Impl>::dispatchInsts(ThreadID tid)
             toRename->iewInfo[tid].dispatchedToSQ++;
         } else if (inst->isLoad()) {
             DPRINTF(IEW, "[tid:%i] Issue: Memory instruction "
-                    "encountered, adding to LSQ.\n", tid);
+                    "encountered, adding to LSQ(Load).\n", tid);
 
             // Reserve a spot in the load store queue for this
             // memory access.
@@ -1098,7 +1098,7 @@ DefaultIEW<Impl>::dispatchInsts(ThreadID tid)
             toRename->iewInfo[tid].dispatchedToLQ++;
         } else if (inst->isStore()) {
             DPRINTF(IEW, "[tid:%i] Issue: Memory instruction "
-                    "encountered, adding to LSQ.\n", tid);
+                    "encountered, adding to LSQ(Store).\n", tid);
 
             ldstQueue.insertStore(inst);
 

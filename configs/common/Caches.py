@@ -54,7 +54,17 @@ class L1Cache(Cache):
     tag_latency = 2
     data_latency = 2
     response_latency = 2
-    mshrs = 8
+    enable_bank_model = False
+    mshrs = 4
+    tgts_per_mshr = 20
+
+class L1_DCache_AM(L1CacheAM):
+    assoc = 2
+    tag_latency = 2
+    data_latency = 2
+    response_latency = 2
+    enable_bank_model = False
+    mshrs = 4
     tgts_per_mshr = 20
 
 class L1_ICache(L1Cache):
@@ -70,6 +80,17 @@ class L2Cache(Cache):
     tag_latency = 20
     data_latency = 20
     response_latency = 20
+    enable_bank_model = False
+    mshrs = 20
+    tgts_per_mshr = 12
+    write_buffers = 8
+
+class L2_Cache_AM(L2CacheAM):
+    assoc = 8
+    tag_latency = 20
+    data_latency = 20
+    response_latency = 20
+    enable_bank_model = False
     mshrs = 20
     tgts_per_mshr = 12
     write_buffers = 8
@@ -79,6 +100,7 @@ class IOCache(Cache):
     tag_latency = 50
     data_latency = 50
     response_latency = 50
+    enable_bank_model = False
     mshrs = 20
     size = '1kB'
     tgts_per_mshr = 12
@@ -88,6 +110,7 @@ class PageTableWalkerCache(Cache):
     tag_latency = 2
     data_latency = 2
     response_latency = 2
+    enable_bank_model = False
     mshrs = 10
     size = '1kB'
     tgts_per_mshr = 12

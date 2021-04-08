@@ -136,6 +136,13 @@ class MemCmd
         HTMReq,
         HTMReqResp,
         HTMAbort,
+        // AsyncMemory
+        AsyncMemLdReq,
+        AsyncMemWrReq,
+        AsyncMemLdResp,
+        AsyncMemWrResp,
+        TestFinReq,
+        TestFinResp,
         MemRd,
         MemWr,
         MemWrPtl,
@@ -974,6 +981,12 @@ class Packet : public Printable
               MemCmd::InvalidateReq;
         } else if (req->isCacheClean()) {
             return MemCmd::CleanSharedReq;
+        } else if (req->isAsyncMemAload()) {
+            return MemCmd::AsyncMemLdReq;
+        } else if (req->isAsyncMemAstore()) {
+            return MemCmd::AsyncMemWrReq;
+        } else if (req->isAsyncTestFin()) {
+            return MemCmd::TestFinReq;
         } else
             return MemCmd::WriteReq;
     }
@@ -1047,6 +1060,13 @@ class Packet : public Printable
     {
         assert(!flags.isSet(VALID_SIZE));
 
+        this->size = size;
+        flags.set(VALID_SIZE);
+    }
+
+    void
+    reSetSize(unsigned size)
+    {
         this->size = size;
         flags.set(VALID_SIZE);
     }

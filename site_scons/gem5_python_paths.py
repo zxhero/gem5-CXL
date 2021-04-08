@@ -48,5 +48,6 @@ extra_python_nodes = [
 ]
 
 extra_python_paths = [ node.abspath for node in extra_python_nodes ]
+print(extra_python_paths)
 
 __all__ = ['extra_python_paths']

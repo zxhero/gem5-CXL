@@ -418,6 +418,31 @@ decode QUADRANT default Unknown::unknown() {
             }
         }
 
+        // MEMACC:
+        0x02: decode FUNCT3 {
+            format ALoad {
+                0x0: aload({{
+                    Mem_ud = Rs1_ud;
+                }}, {{
+                    Rd = Mem_ud;
+                }});
+            }
+            format AStore {
+                0x1: astore({{
+                    Mem_ud = Rs1_ud;
+                }}, {{
+                    Rd = Mem_ud;
+                }});
+            }
+            format TestFin {
+                0x2: testfin({{
+                    Mem_ud = Rs1_ud;
+                }}, {{
+                    Rd = Mem_ud;
+                }});
+            }
+        }
+
         0x03: decode FUNCT3 {
             format FenceOp {
                 0x0: fence({{
