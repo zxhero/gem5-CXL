@@ -2425,7 +2425,8 @@ BaseCache::CpuSidePort::tryTiming(PacketPtr pkt)
             mustSendRetry = true;
         } else {
             DPRINTF(CachePort, "Cache port %s denying new requests because the"
-                    " accessing bank is busy\n", name());
+                    " accessing bank is busy(addr=%lx)\n",
+                    name(), pkt->getAddr());
             // because of bank is busy
             // precisely know which tick the service will finish
             assert(!sendRetryEvent.scheduled());

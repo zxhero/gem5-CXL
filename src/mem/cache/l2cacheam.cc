@@ -98,8 +98,9 @@ L2CacheAM::~L2CacheAM()
 
 Tick L2CacheAM::getSpmLatency() const
 {
-    return latency +
-           (latency_var ? random_mt.random<Tick>(0, latency_var) : 0);
+    // return latency +
+    //       (latency_var ? random_mt.random<Tick>(0, latency_var) : 0);
+    return dataLatency * clockPeriod();
 }
 
 // Add load-locked to tracking list.  Should only be called if the
@@ -486,6 +487,12 @@ bool L2CacheAM::spmRecvTimingReq(PacketPtr pkt)
     // the bandwidth limit
     Tick duration = pkt->getSize() * bandwidth;
 
+    Tick spmlat = getSpmLatency();
+
+    unsigned bank_id = getBankId(pkt->getAddr());
+    if (enableBankModel) {
+        bank[bank_id]->markInService(curTick() + spmlat);
+    }
     // only consider ourselves busy if there is any need to wait
     // to avoid extra events being scheduled for (infinitely) fast
     // memories
@@ -506,7 +513,7 @@ bool L2CacheAM::spmRecvTimingReq(PacketPtr pkt)
         // atomic response
         assert(pkt->isResponse());
 
-        Tick when_to_send = curTick() + receive_delay + getSpmLatency();
+        Tick when_to_send = curTick() + receive_delay + spmlat;
         cpuSidePort.schedTimingResp(pkt, when_to_send);
 
         // typically this should be added at the end, so start the

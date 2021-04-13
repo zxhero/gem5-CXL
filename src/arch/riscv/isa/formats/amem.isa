@@ -29,8 +29,51 @@
 
 ////////////////////////////////////////////////////////////////////
 //
-// Memory operation instructions
+// Asynchronous Memory operation instructions
 //
+
+def template MACFGExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Fault fault = NoFault;
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        RegVal data, olddata;
+        if (MACFGData.find(cfgreg) != MACFGData.end()) {
+            olddata = xc->readMiscReg(MACFGData.at(cfgreg).physIndex);
+        } else {
+            std::string error = csprintf("Illegal MACFG index %#x\n", cfgreg);
+            fault = make_shared<IllegalInstFault>(error, machInst);
+            olddata = 0;
+        }
+        DPRINTF(RiscvMisc, "Reading MACFG %s: %#x\n",
+                MACFGData.at(cfgreg).name, olddata);
+        data = olddata;
+
+        if (fault == NoFault) {
+            %(code)s;
+            if (fault == NoFault) {
+                if (data != olddata) {
+                    DPRINTF(RiscvMisc, "Writing %#x to MACFG %s.\n", data,
+                            MACFGData.at(cfgreg).name);
+                    INTERRUPT oldinterrupt = olddata;
+                    INTERRUPT newinterrupt = data;
+                    xc->setMiscReg(MACFGData.at(cfgreg).physIndex, data);
+                }
+            }
+            if (fault == NoFault) {
+                %(op_wb)s;
+            }
+        }
+        return fault;
+    }
+}};
+
+
 def template ALoadStoreDeclare {{
     /**
      * Static instruction class for "%(mnemonic)s".
@@ -216,4 +259,12 @@ def format TestFin(memacc_code, memacc_code2,
         ALoadStoreBase(name, Name, offset_code, ea_code, \
         memacc_code, memacc_code2,\
         mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
+}};
+
+def format MACFGOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'MACFGOp', code, opt_flags)
+    header_output = BasicDeclare.subst(iop)
+    decoder_output = BasicConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = MACFGExecute.subst(iop)
 }};

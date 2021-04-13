@@ -251,6 +251,8 @@ enum MiscRegIndex {
     MISCREG_FFLAGS,
     MISCREG_FRM,
 
+    MISCREG_HEAD0,
+
     NUM_MISCREGS
 };
 const int NumMiscRegs = NUM_MISCREGS;
@@ -421,6 +423,10 @@ enum CSRIndex {
     CSR_DSCRATCH = 0x7B2
 };
 
+enum MACFG_Index {
+    MACFG_HEAD0 = 0x0
+};
+
 struct CSRMetadata
 {
     const std::string name;
@@ -589,6 +595,13 @@ const std::map<int, CSRMetadata> CSRData = {
     {CSR_DCSR, {"dcsr", MISCREG_DCSR}},
     {CSR_DPC, {"dpc", MISCREG_DPC}},
     {CSR_DSCRATCH, {"dscratch", MISCREG_DSCRATCH}}
+};
+
+// MEMACC: MEMACC's configuration register is very similar
+// to CSR registers. So instead of defining something
+// like `MACFGMetadata`, we just use CSRMetadata here.
+const std::map<int, CSRMetadata> MACFGData = {
+    {MACFG_HEAD0, {"head0", MISCREG_HEAD0}},
 };
 
 /**

@@ -441,6 +441,14 @@ decode QUADRANT default Unknown::unknown() {
                     Rd = Mem_ud;
                 }});
             }
+            format MACFGOp {
+                0x3: memaccread({{
+                    Rd = data;
+                }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
+                0x4: memaccwrite({{
+                    data = Rs1;
+                }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
+            }
         }
 
         0x03: decode FUNCT3 {
