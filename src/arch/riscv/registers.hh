@@ -251,6 +251,8 @@ enum MiscRegIndex {
     MISCREG_FFLAGS,
     MISCREG_FRM,
 
+    MISCREG_QBASE,
+    MISCREG_QLENGTH,
     MISCREG_HEAD0,
 
     NUM_MISCREGS
@@ -424,7 +426,9 @@ enum CSRIndex {
 };
 
 enum MACFG_Index {
-    MACFG_HEAD0 = 0x0
+    MACFG_QBASE = 0x0,
+    MACFG_QLENGTH = 0x1,
+    MACFG_HEAD0 = 0x2,
 };
 
 struct CSRMetadata
@@ -601,6 +605,8 @@ const std::map<int, CSRMetadata> CSRData = {
 // to CSR registers. So instead of defining something
 // like `MACFGMetadata`, we just use CSRMetadata here.
 const std::map<int, CSRMetadata> MACFGData = {
+    {MACFG_QBASE, {"qbase", MISCREG_QBASE}},
+    {MACFG_QLENGTH, {"qlength", MISCREG_QLENGTH}},
     {MACFG_HEAD0, {"head0", MISCREG_HEAD0}},
 };
 

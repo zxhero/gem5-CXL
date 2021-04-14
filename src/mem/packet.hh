@@ -143,6 +143,8 @@ class MemCmd
         AsyncMemWrResp,
         TestFinReq,
         TestFinResp,
+        CfgRegReq,
+        CfgRegResp,
         MemRd,
         MemWr,
         MemWrPtl,
@@ -987,6 +989,8 @@ class Packet : public Printable
             return MemCmd::AsyncMemWrReq;
         } else if (req->isAsyncTestFin()) {
             return MemCmd::TestFinReq;
+        } else if (req->isAsyncCfgReg()) {
+            return MemCmd::CfgRegReq;
         } else
             return MemCmd::WriteReq;
     }

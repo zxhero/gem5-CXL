@@ -228,6 +228,7 @@ class Request
         ASYNCMEM_ALOAD              = 0x0000100000000000,
         ASYNCMEM_ASTORE             = 0x0000200000000000,
         ASYNCMEM_TESTFIN            = 0x0000400000000000,
+        ASYNCMEM_CFGREG             = 0x0000800000000000,
 
         /**
          * These flags are *not* cleared when a Request object is
@@ -924,8 +925,10 @@ class Request
     bool isAsyncMemAload() const { return _flags.isSet(ASYNCMEM_ALOAD); }
     bool isAsyncMemAstore() const { return _flags.isSet(ASYNCMEM_ASTORE); }
     bool isAsyncTestFin() const { return _flags.isSet(ASYNCMEM_TESTFIN); }
+    bool isAsyncCfgReg() const { return _flags.isSet(ASYNCMEM_CFGREG); }
     bool isAyncMem() const {
-        return isAsyncMemAload() || isAsyncMemAstore() || isAsyncTestFin();
+        return isAsyncMemAload() || isAsyncMemAstore() ||
+               isAsyncTestFin() || isAsyncCfgReg();
     }
 
     bool

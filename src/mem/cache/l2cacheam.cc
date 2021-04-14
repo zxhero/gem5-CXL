@@ -83,8 +83,8 @@ L2CacheAM::L2CacheAM(const L2CacheAMParams *p)
       releaseEvent([this] { spmRelease(); }, name()),
       dequeueEvent([this] { spmDequeue(); }, name()),
       asyncMemReqLength(32),
-      asyncMemReqs(asyncMemReqLength)
-
+      asyncMemReqs(asyncMemReqLength),
+      asyncMemConfigRegs(MEMACC_CFG_COUNT)
 {
     fatal_if(spmWays > p->assoc,
              "spm ways must smaller than cache associativity");
@@ -583,12 +583,13 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
     if (pkt->cmd == MemCmd::AsyncMemWrReq ||
         pkt->cmd == MemCmd::AsyncMemLdReq)
     {
+        uint64_t headregval = pkt->req->getExtraData();
         uint64_t spm_addr = 0;
         pkt->writeData((uint8_t *)&spm_addr);
         DPRINTF(CacheAM,
                 "%s L2CacheAM: async mem load/store at 0x%lx,"
-                " spm_addr = 0x%lx\n",
-                __func__, pkt->getAddr(), spm_addr);
+                " spm_addr = 0x%lx, head=%lx\n",
+                __func__, pkt->getAddr(), spm_addr, headregval);
 
         if (pkt->cmd == MemCmd::AsyncMemLdReq)
         {
@@ -630,6 +631,17 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
                 "%s L2CacheAM: testfin(handle=%ld,res=%ld)\n",
                 __func__, handle,req_result);
         return ;
+    }
+
+    if (pkt->cmd == MemCmd::CfgRegReq) {
+        int regid = pkt->getAddr() - 0x1000000000000000llu;
+        uint64_t val = 0;
+        pkt->writeData((uint8_t *)&val);
+        pkt->makeTimingResponse();
+        asyncMemConfigRegs[regid] = val;
+        DPRINTF(CacheAM,
+                "%s L2CacheAM: cfgreg(regid=%ld,val=%ld)\n",
+                __func__, regid, val);
     }
 
     if (spmRange.contains(pkt->getAddr()))

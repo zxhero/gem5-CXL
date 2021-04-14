@@ -32,6 +32,20 @@
 // Asynchronous Memory operation instructions
 //
 
+def template MACFGConstructor {{
+    %(class_name)s::%(class_name)s(MachInst machInst)
+        : %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
+    {
+        %(constructor)s;
+
+        // overwrite default flags
+        // flags[IsMemRef] = true;
+        // flags[IsLoad] = false;
+        // flags[IsStore] = true;
+        // flags[IsAtomic] = true;
+    }
+}};
+
 def template MACFGExecute {{
     Fault
     %(class_name)s::execute(ExecContext *xc,
@@ -60,9 +74,18 @@ def template MACFGExecute {{
                 if (data != olddata) {
                     DPRINTF(RiscvMisc, "Writing %#x to MACFG %s.\n", data,
                             MACFGData.at(cfgreg).name);
-                    INTERRUPT oldinterrupt = olddata;
-                    INTERRUPT newinterrupt = data;
-                    xc->setMiscReg(MACFGData.at(cfgreg).physIndex, data);
+                    switch (cfgreg) {
+                      case MACFG_QBASE:
+                      case MACFG_QLENGTH:
+                        xc->setMiscReg(MACFGData.at(cfgreg).physIndex, data);
+                        fault = writeMemTimingLE(xc, traceData, data,
+                            0x1000000000000000 + cfgreg,
+                            Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE,
+                            nullptr);
+                        break;
+                      default:
+                        xc->setMiscReg(MACFGData.at(cfgreg).physIndex, data);
+                    }
                 }
             }
             if (fault == NoFault) {
@@ -192,8 +215,11 @@ def template ALoadStoreInitiateAcc {{
         }
 
         if (fault == NoFault) {
+            uint64_t macfgreg = FUNCT7;
+            uint64_t olddata =
+                xc->readMiscReg(MACFGData.at(macfgreg).physIndex);
             fault = writeMemTimingLE(xc, traceData, Mem, EA,
-                memAccessFlags, nullptr);
+                memAccessFlags, &olddata);
         }
 
         if (fault == NoFault) {
@@ -264,7 +290,7 @@ def format TestFin(memacc_code, memacc_code2,
 def format MACFGOp(code, *opt_flags) {{
     iop = InstObjParams(name, Name, 'MACFGOp', code, opt_flags)
     header_output = BasicDeclare.subst(iop)
-    decoder_output = BasicConstructor.subst(iop)
+    decoder_output = MACFGConstructor.subst(iop)
     decode_block = BasicDecode.subst(iop)
     exec_output = MACFGExecute.subst(iop)
 }};

@@ -61,6 +61,14 @@ class CacheBlk;
 struct L2CacheAMParams;
 class MSHR;
 
+enum MemAccConfigRegs
+{
+    MEMACC_CFG_QBASE = 0x0,
+    MEMACC_CFG_QLENGTH = 0x1,
+    MEMACC_CFG_HEAD0 = 0x2,
+
+    MEMACC_CFG_COUNT,
+};
 
 /**
  * A coherent cache that can be arranged in flexible topologies.
@@ -212,6 +220,7 @@ class L2CacheAM : public Cache
     };
     unsigned int asyncMemReqLength;
     std::vector<AsyncMemReqEntry> asyncMemReqs;
+    std::vector<uint64_t> asyncMemConfigRegs;
     int allocAsyncMemReq(uint64_t spmAddr, Addr memAddr);
     bool checkAsyncMemReq(uint64_t handle);
 

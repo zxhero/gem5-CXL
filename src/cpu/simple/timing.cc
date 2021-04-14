@@ -342,6 +342,10 @@ TimingSimpleCPU::sendData(const RequestPtr &req, uint8_t *data, uint64_t *res,
             completeDataAccess(pkt);
         }
     }
+
+    if (req->isAsyncMemAload() || req->isAsyncMemAstore()) {
+        req->setExtraData(*res);
+    }
 }
 
 void
