@@ -183,4 +183,12 @@ class L2CacheAM(Cache):
     # The memory bandwidth limit default is set to 12.8GB/s which is
     # representative of a x64 DDR3-1600 channel.
     bandwidth = Param.MemoryBandwidth('12.8GB/s',
-        "Combined read and write bandwidth")
+        'Combined read and write bandwidth')
+    asyncmem_outstanding = Param.Unsigned(16,
+        'Maximum number of outstanding AM requests')
+
+    def __init__(self, **kwargs):
+        super(L2CacheAM, self).__init__(**kwargs)
+        # self.tags = Param.BaseTags(BaseSetAssoc(), "Tag store")
+        self.tags = ReconfSetAssoc()
+        print(type(self.tags))

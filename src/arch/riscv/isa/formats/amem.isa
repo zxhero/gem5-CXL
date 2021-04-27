@@ -32,23 +32,95 @@
 // Asynchronous Memory operation instructions
 //
 
-def template MACFGConstructor {{
-    %(class_name)s::%(class_name)s(MachInst machInst)
-        : %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
+def template MACFGWrConstructor {{
+    %(class_name)s::%(class_name)s(ExtMachInst machInst):
+        %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
     {
         %(constructor)s;
 
         // overwrite default flags
-        // flags[IsMemRef] = true;
-        // flags[IsLoad] = false;
-        // flags[IsStore] = true;
-        // flags[IsAtomic] = true;
+        flags[IsMemRef] = true;
+        flags[IsLoad] = false;
+        flags[IsStore] = true;
+        flags[IsAtomic] = true;
     }
 }};
 
-def template MACFGExecute {{
+
+def template MACFGRdConstructor {{
+    %(class_name)s::%(class_name)s(ExtMachInst machInst):
+        %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
+    {
+        %(constructor)s;
+    }
+}};
+
+def template MACFGDeclare {{
+    /**
+     * Static instruction class for "%(mnemonic)s".
+     */
+    class %(class_name)s : public %(base_class)s
+    {
+      public:
+        /// Constructor.
+        %(class_name)s(ExtMachInst machInst);
+
+        Fault execute(ExecContext *, Trace::InstRecord *) const override;
+        Fault initiateAcc(ExecContext *, Trace::InstRecord *) const override;
+        Fault completeAcc(PacketPtr, ExecContext *,
+                          Trace::InstRecord *) const override {
+            return NoFault;
+        }
+    };
+}};
+
+def template MACFGRdExecute {{
     Fault
     %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Fault fault = NoFault;
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        RegVal data, olddata;
+        if (MACFGData.find(cfgreg) != MACFGData.end()) {
+            olddata = xc->readMiscReg(MACFGData.at(cfgreg).physIndex);
+        } else {
+            std::string error = csprintf("Illegal MACFG index %#x\n", cfgreg);
+            fault = make_shared<IllegalInstFault>(error, machInst);
+            olddata = 0;
+        }
+        DPRINTF(RiscvMisc, "Reading MACFG %s: %#x\n",
+                MACFGData.at(cfgreg).name, olddata);
+        data = olddata;
+
+        if (fault == NoFault) {
+            %(code)s;
+            if (fault == NoFault) {
+                %(op_wb)s;
+            }
+        }
+        return fault;
+    }
+    Fault
+    %(class_name)s::initiateAcc(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+}};
+
+def template MACFGWrExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+    Fault
+    %(class_name)s::initiateAcc(ExecContext *xc,
         Trace::InstRecord *traceData) const
     {
         Fault fault = NoFault;
@@ -287,10 +359,18 @@ def format TestFin(memacc_code, memacc_code2,
         mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
 }};
 
-def format MACFGOp(code, *opt_flags) {{
-    iop = InstObjParams(name, Name, 'MACFGOp', code, opt_flags)
-    header_output = BasicDeclare.subst(iop)
-    decoder_output = MACFGConstructor.subst(iop)
+def format MACFGRdOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'MACFGOp', {"code": code}, opt_flags)
+    header_output = MACFGDeclare.subst(iop)
+    decoder_output = MACFGRdConstructor.subst(iop)
     decode_block = BasicDecode.subst(iop)
-    exec_output = MACFGExecute.subst(iop)
+    exec_output = MACFGRdExecute.subst(iop)
+}};
+
+def format MACFGWrOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'MACFGOp', {"code": code}, opt_flags)
+    header_output = MACFGDeclare.subst(iop)
+    decoder_output = MACFGWrConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = MACFGWrExecute.subst(iop)
 }};

@@ -1,6 +1,18 @@
 /*
- * Copyright (c) 2015 RISC-V Foundation
- * Copyright (c) 2017 The University of Virginia
+ * Copyright (c) 2018 Inria
+ * Copyright (c) 2012-2014,2017 ARM Limited
+ * All rights reserved.
+ *
+ * The license below extends only to copyright in the software and shall
+ * not be construed as granting a license to any other intellectual
+ * property including but not limited to intellectual property relating
+ * to a hardware implementation of the functionality of the software
+ * licensed hereunder.  You may use the software subject to the license
+ * terms below provided that you ensure that this notice is replicated
+ * unmodified and in its entirety in all distributions of the software,
+ * modified or unmodified, in source code or in binary form.
+ *
+ * Copyright (c) 2003-2005,2014 The Regents of The University of Michigan
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -27,54 +39,31 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "arch/riscv/insts/mem.hh"
+/**
+ * @file
+ * Definitions of a set associative indexing policy.
+ */
 
-#include <sstream>
-#include <string>
+#include "mem/cache/tags/indexing_policies/reconf_set_associative.hh"
 
-#include "arch/riscv/insts/bitfields.hh"
-#include "arch/riscv/insts/static_inst.hh"
-#include "arch/riscv/utility.hh"
-#include "cpu/static_inst.hh"
+#include "mem/cache/replacement_policies/replaceable_entry.hh"
 
-using namespace std;
-
-namespace RiscvISA
+ReconfSetAssociative::ReconfSetAssociative(const Params *p)
+    : SetAssociative(p), validWays(p->assoc)
 {
-
-string
-Load::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
-{
-    stringstream ss;
-    ss << mnemonic << ' ' << registerName(_destRegIdx[0]) << ", " <<
-        offset << '(' << registerName(_srcRegIdx[0]) << ')';
-    return ss.str();
 }
 
-string
-Store::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
+std::vector<ReplaceableEntry*>
+ReconfSetAssociative::getPossibleEntries(const Addr addr) const
 {
-    stringstream ss;
-    ss << mnemonic << ' ' << registerName(_srcRegIdx[1]) << ", " <<
-        offset << '(' << registerName(_srcRegIdx[0]) << ')';
-    return ss.str();
+    uint32_t extractedSet = extractSet(addr);
+    return std::vector<ReplaceableEntry*>(
+        sets[extractedSet].begin(),
+        sets[extractedSet].begin() + validWays);
 }
 
-string
-MACFGOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
+ReconfSetAssociative*
+ReconfSetAssociativeParams::create()
 {
-    stringstream ss;
-    ss << mnemonic << ' ' << registerName(_destRegIdx[0]) << ", ";
-    auto data = MACFGData.find(cfgreg);
-    if (data != MACFGData.end())
-        ss << data->second.name;
-    else
-        ss << "?? (" << hex << "0x" << cfgreg << dec << ")";
-    if (_numSrcRegs > 0)
-        ss << ", " << registerName(_srcRegIdx[0]);
-    else
-        ss << uimm;
-    return ss.str();
-}
-
+    return new ReconfSetAssociative(this);
 }

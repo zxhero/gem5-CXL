@@ -202,12 +202,14 @@ BaseCache::CacheResponsePort::setBlocked()
 void
 BaseCache::CacheResponsePort::clearBlocked()
 {
-   assert(blocked);
-   DPRINTF(CachePort, "Port is accepting new requests\n");
-   blocked = false;
-   if (mustSendRetry) {
-       // @TODO: need to find a better time (next cycle?)
-       owner.schedule(sendRetryEvent, curTick() + 1);
+   // assert(blocked);
+   if (blocked) {
+       DPRINTF(CachePort, "Port is accepting new requests\n");
+       blocked = false;
+       if (mustSendRetry) {
+           // @TODO: need to find a better time (next cycle?)
+           owner.schedule(sendRetryEvent, curTick() + 1);
+       }
    }
 }
 

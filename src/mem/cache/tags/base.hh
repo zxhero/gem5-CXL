@@ -337,6 +337,10 @@ class BaseTags : public ClockedObject
      */
     virtual bool anyBlk(std::function<bool(CacheBlk &)> visitor) = 0;
 
+    /** Get Indexing policy */
+    BaseIndexingPolicy *getIndexingPolicy() { return indexingPolicy; }
+
+
   private:
     /**
      * Update the reference stats using data from the input block

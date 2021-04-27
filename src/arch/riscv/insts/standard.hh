@@ -98,25 +98,6 @@ class CSROp : public RiscvStaticInst
         Addr pc, const Loader::SymbolTable *symtab) const override;
 };
 
-/**
- * Base class for MACFG operations
- */
-class MACFGOp : public RiscvStaticInst
-{
-  protected:
-    uint64_t cfgreg;
-    uint64_t uimm;
-
-    /// Constructor
-    MACFGOp(const char *mnem, MachInst _machInst, OpClass __opClass)
-        : RiscvStaticInst(mnem, _machInst, __opClass),
-            cfgreg(FUNCT12), uimm(CSRIMM)
-    {}
-
-    std::string generateDisassembly(
-        Addr pc, const Loader::SymbolTable *symtab) const override;
-};
-
 }
 
 #endif // __ARCH_RISCV_STANDARD_INST_HH__

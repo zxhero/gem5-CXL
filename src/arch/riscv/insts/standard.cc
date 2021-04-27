@@ -73,23 +73,6 @@ CSROp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 }
 
 string
-MACFGOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
-{
-    stringstream ss;
-    ss << mnemonic << ' ' << registerName(_destRegIdx[0]) << ", ";
-    auto data = MACFGData.find(cfgreg);
-    if (data != MACFGData.end())
-        ss << data->second.name;
-    else
-        ss << "?? (" << hex << "0x" << cfgreg << dec << ")";
-    if (_numSrcRegs > 0)
-        ss << ", " << registerName(_srcRegIdx[0]);
-    else
-        ss << uimm;
-    return ss.str();
-}
-
-string
 SystemOp::generateDisassembly(Addr pc, const Loader::SymbolTable *symtab) const
 {
     if (strcmp(mnemonic, "fence_vma") == 0) {

@@ -82,6 +82,12 @@ class BaseSetAssoc(BaseTags):
     replacement_policy = Param.BaseReplacementPolicy(
         Parent.replacement_policy, "Replacement policy")
 
+class ReconfSetAssoc(BaseSetAssoc):
+    # Get indexing policy
+    def __init__(self, **kwargs):
+        super(BaseSetAssoc, self).__init__(**kwargs)
+        self.indexing_policy = ReconfSetAssociative()
+
 class SectorTags(BaseTags):
     type = 'SectorTags'
     cxx_header = "mem/cache/tags/sector_tags.hh"
