@@ -230,8 +230,27 @@ class L2CacheAM : public Cache
         GET_REQ_ENTRY,
         FIN_REQ_ENTRY,
         FIN_FIN_ENTRY,
-        FIN_ALOAD
+        FIN_ALOAD,
+        SPM_STATE_COUNT
     };
+    const char* spmStateStr[SPM_STATE_COUNT] = {
+        "READY_TO_SERVE",
+        "BUILD_REQ_QUEUE",
+        "BUILD_FREE_LIST",
+        "BUILD_FIN_LIST",
+        "ALLOC_REQ_ENTRY",
+        "FILL_REQ_ENTRY",
+        "EXEC_ASTORE",
+        "EXEC_ALOAD",
+        "EXEC_TESTFIN",
+        "FIN_TEST_FIN",
+        "WRITE_FREE_LIST",
+        "GET_REQ_ENTRY",
+        "FIN_REQ_ENTRY",
+        "FIN_FIN_ENTRY",
+        "FIN_ALOAD"
+    };
+
 
     enum SpmFSMEvent {
         RECV_SPM_READ_RESP,
@@ -242,7 +261,19 @@ class L2CacheAM : public Cache
         RECONF_QUEUE_LENGTH,
         ALOAD_REQ,
         ASTORE_REQ,
-        TESTFIN_REQ
+        TESTFIN_REQ,
+        SPM_FSM_EVENT_COUNT
+    };
+    const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
+        "RECV_SPM_READ_RESP",
+        "RECV_SPM_WRITE_RESP",
+        "RECV_MEM_READ_RESP",
+        "RECV_MEM_WRITE_RESP",
+        "RECONF_QUEUE_BASE",
+        "RECONF_QUEUE_LENGTH",
+        "ALOAD_REQ",
+        "ASTORE_REQ",
+        "TESTFIN_REQ"
     };
 
     struct AsyncMemReqEntry {

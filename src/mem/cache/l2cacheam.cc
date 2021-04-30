@@ -598,7 +598,7 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
     {
         pendingAsyncMemPkts.push_back(pkt);
         if (pendingAsyncMemPkts.size() >= asyncmemOutstanding) {
-            cpuSidePort.setBlocked();
+            setBlocked(Blocked_NoAMPktQueues);
         }
         retryProcessAMReq();
 
@@ -653,7 +653,7 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
     if (pkt->cmd == MemCmd::TestFinReq) {
         pendingAsyncMemPkts.push_back(pkt);
         if (pendingAsyncMemPkts.size() >= asyncmemOutstanding) {
-            cpuSidePort.setBlocked();
+            setBlocked(Blocked_NoAMPktQueues);
         }
         retryProcessAMReq();
         // uint64_t handle = 0;
@@ -717,7 +717,8 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
 
 void L2CacheAM::recvInnerTimingResp(PacketPtr pkt)
 {
-    DPRINTF(CacheAM, "recvInnerResp at tick %ld\n", curTick());
+    DPRINTF(CacheAM, "recvInnerTimingResp at tick %ld, addr=%lx\n",
+        curTick(), pkt->getAddr());
     // for (auto amReqIter = asyncMemReqs.begin();
     //      amReqIter != asyncMemReqs.end();
     //      ++amReqIter)
@@ -759,6 +760,8 @@ void L2CacheAM::recvInnerTimingResp(PacketPtr pkt)
 
 void L2CacheAM::recvTimingResp(PacketPtr pkt)
 {
+    DPRINTF(CacheAM, "recvTimingResp at tick %ld, addr=%lx\n",
+        curTick(), pkt->getAddr());
     assert(pkt->isResponse());
 
     /* if (pkt->req->isUncacheable() &&
@@ -893,6 +896,8 @@ void L2CacheAM::rebuildAsyncMemReqFinList()
     } else {
         stateMachine.state = READY_TO_SERVE;
         stateMachine.val = 0;
+        schedule(retryProcessAMReqEvent, curTick() + 1);
+        schedule(retryProcessAMRespEvent, curTick() + 1);
         if (outstandingAsyncMemPkt) {
             outstandingAsyncMemPkt->makeTimingResponse();
             cpuSidePort.schedTimingResp(outstandingAsyncMemPkt,
@@ -909,7 +914,7 @@ void L2CacheAM::retryProcessAMReq()
             assert(outstandingAsyncMemPkt == nullptr);
             outstandingAsyncMemPkt = pendingAsyncMemPkts.front();
             pendingAsyncMemPkts.pop_front();
-            cpuSidePort.clearBlocked();
+            clearBlocked(Blocked_NoAMPktQueues);
             if (outstandingAsyncMemPkt->cmd == MemCmd::AsyncMemLdReq) {
                 spmFsmProcess(ALOAD_REQ, nullptr);
             } else if (outstandingAsyncMemPkt->cmd == MemCmd::AsyncMemWrReq) {
@@ -919,7 +924,6 @@ void L2CacheAM::retryProcessAMReq()
             } else {
                 assert(0);
             }
-        } else {
         }
     }
 }
@@ -937,8 +941,6 @@ void L2CacheAM::retryProcessAMResp()
             } else {
                 spmFsmProcess(RECV_MEM_WRITE_RESP, tmp);
             }
-        } else {
-            schedule(retryProcessAMRespEvent, curTick() + 1);
         }
     }
 }
@@ -980,10 +982,13 @@ void L2CacheAM::allocReqEntryHelper(AsyncMemReqEntryState state)
 
 void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
 {
-    if ((spmFsmEvent == ALOAD_REQ || spmFsmEvent == ASTORE_REQ) &&
-        stateMachine.state != READY_TO_SERVE) {
-        schedule(retryProcessAMReqEvent, curTick() + 1);
-    }
+    // if ((spmFsmEvent == ALOAD_REQ || spmFsmEvent == ASTORE_REQ) &&
+    //     stateMachine.state != READY_TO_SERVE) {
+    //     schedule(retryProcessAMReqEvent, curTick() + 1);
+    // }
+    DPRINTF(CacheAM, "spmFsmProcess state = %s, event = %s\n",
+        spmStateStr[stateMachine.state],
+        spmFSMEventStr[spmFsmEvent]);
 
     switch (stateMachine.state) {
         case READY_TO_SERVE: {
@@ -1260,6 +1265,9 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
                     cpuSidePort.schedTimingResp(reqpkt,
                         clockEdge(forwardLatency));
                     outstandingAsyncMemPkt = nullptr;
+                    DPRINTF(CacheAM,
+                            "%s L2CacheAM: testfin resp(handle=%ld,res=%ld)\n",
+                            __func__, stateMachine.val2, req_result);
 
                     if (req_result) {
                         // clear the entry

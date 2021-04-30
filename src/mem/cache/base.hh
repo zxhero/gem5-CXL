@@ -107,6 +107,8 @@ class BaseCache : public ClockedObject
         Blocked_NoMSHRs = MSHRQueue_MSHRs,
         Blocked_NoWBBuffers = MSHRQueue_WriteBuffer,
         Blocked_NoTargets,
+        Blocked_NoAMPktQueues,
+        Blocked_NoAMRespQueues,
         NUM_BLOCKED_CAUSES
     };
 
@@ -267,9 +269,9 @@ class BaseCache : public ClockedObject
         bool blocked;
 
         bool mustSendRetry;
-        bool innerReqRetry;
 
         EventFunctionWrapper sendRetryEvent;
+        EventFunctionWrapper sendInnerRetryEvent;
 
         virtual void processInnerReqEvent() {}
       private:
