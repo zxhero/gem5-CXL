@@ -61,6 +61,14 @@ class CacheBlk;
 struct L2CacheAMParams;
 class MSHR;
 
+enum MemAccConfigRegs
+{
+    MEMACC_CFG_QBASE = 0x0,
+    MEMACC_CFG_QLENGTH = 0x1,
+    MEMACC_CFG_HEAD0 = 0x2,
+
+    MEMACC_CFG_COUNT,
+};
 
 /**
  * A coherent cache that can be arranged in flexible topologies.
@@ -86,6 +94,8 @@ class L2CacheAM : public Cache
 
     unsigned spmWays;
     unsigned numSets;
+    unsigned asyncmemOutstanding;
+    unsigned asyncmemRespPending;
     uint8_t* pmemAddr;
     AddrRange spmRange;
     struct SpmStats : public Stats::Group {
@@ -201,7 +211,128 @@ class L2CacheAM : public Cache
      */
     // std::unique_ptr<Packet> pendingDelete;
 
+    EventFunctionWrapper retryProcessAMReqEvent;
+    std::list<PacketPtr> pendingAsyncMemPkts;
+    EventFunctionWrapper retryProcessAMRespEvent;
+    std::list<PacketPtr> pendingAsyncMemRespPkts;
+    enum SpmState {
+        READY_TO_SERVE,
+        BUILD_REQ_QUEUE,
+        BUILD_FREE_LIST,
+        BUILD_FIN_LIST,
+        ALLOC_REQ_ENTRY,
+        FILL_REQ_ENTRY,
+        EXEC_ASTORE,
+        EXEC_ALOAD,
+        EXEC_TESTFIN,
+        FIN_TEST_FIN,
+        WRITE_FREE_LIST,
+        GET_REQ_ENTRY,
+        FIN_REQ_ENTRY,
+        FIN_FIN_ENTRY,
+        FIN_ALOAD,
+        SPM_STATE_COUNT
+    };
+    const char* spmStateStr[SPM_STATE_COUNT] = {
+        "READY_TO_SERVE",
+        "BUILD_REQ_QUEUE",
+        "BUILD_FREE_LIST",
+        "BUILD_FIN_LIST",
+        "ALLOC_REQ_ENTRY",
+        "FILL_REQ_ENTRY",
+        "EXEC_ASTORE",
+        "EXEC_ALOAD",
+        "EXEC_TESTFIN",
+        "FIN_TEST_FIN",
+        "WRITE_FREE_LIST",
+        "GET_REQ_ENTRY",
+        "FIN_REQ_ENTRY",
+        "FIN_FIN_ENTRY",
+        "FIN_ALOAD"
+    };
+
+
+    enum SpmFSMEvent {
+        RECV_SPM_READ_RESP,
+        RECV_SPM_WRITE_RESP,
+        RECV_MEM_READ_RESP,
+        RECV_MEM_WRITE_RESP,
+        RECONF_QUEUE_BASE,
+        RECONF_QUEUE_LENGTH,
+        ALOAD_REQ,
+        ASTORE_REQ,
+        TESTFIN_REQ,
+        SPM_FSM_EVENT_COUNT
+    };
+    const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
+        "RECV_SPM_READ_RESP",
+        "RECV_SPM_WRITE_RESP",
+        "RECV_MEM_READ_RESP",
+        "RECV_MEM_WRITE_RESP",
+        "RECONF_QUEUE_BASE",
+        "RECONF_QUEUE_LENGTH",
+        "ALOAD_REQ",
+        "ASTORE_REQ",
+        "TESTFIN_REQ"
+    };
+
     struct AsyncMemReqEntry {
+        uint64_t entry;
+        uint16_t finListPos;
+    };
+    struct SpmStateMachine {
+        SpmState state;
+        union {
+            int64_t val;
+            AsyncMemReqEntry entry;
+        };
+        int64_t val2;
+        SpmStateMachine() :
+            state(READY_TO_SERVE), val(0), val2(0) {}
+    } stateMachine;
+    void spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data);
+    PacketPtr buildSpmAccessPacket(uint64_t spmAddr,
+        bool isRead, size_t pktSize);
+    void rebuildAsyncMemReqQueue();
+    void rebuildAsyncMemReqFreeList();
+    void rebuildAsyncMemReqFinList();
+    void retryProcessAMReq();
+    void retryProcessAMResp();
+
+    enum AsyncMemReqEntryState {
+        AMRE_IDLE,
+        AMRE_ALOAD,
+        AMRE_ASTORE,
+        AMRE_FINISH
+    };
+    AsyncMemReqEntryState getAsyncMemReqEntryState(
+        AsyncMemReqEntry entry) {
+        return (AsyncMemReqEntryState)(entry.entry >> 57);
+    }
+    AsyncMemReqEntry buildMemReqEntry(AsyncMemReqEntryState state,
+        uintptr_t spmAddr, uintptr_t memAddr) {
+        AsyncMemReqEntry entry;
+        entry.entry =
+            ((uint64_t)state<<57llu) |
+            ((spmAddr & 0x3ffffllu) << 39) |
+            (memAddr & 0x7fffffffffllu);
+        entry.finListPos = 0;
+        return entry;
+    }
+    void decodeMemReqEntry(AsyncMemReqEntry entry,
+        AsyncMemReqEntryState &state,
+        uintptr_t &spmAddr, uintptr_t &memAddr,
+        uint16_t &finListPos) {
+        uint64_t _entry = entry.entry;
+        memAddr = _entry & 0x7fffffffff;
+        _entry >>= 39;
+        spmAddr = (_entry & 0x3ffff) | 0x1000000000000000llu;
+        _entry >>= 18;
+        state = (AsyncMemReqEntryState) _entry;
+        finListPos = entry.finListPos;
+    }
+
+    /* struct AsyncMemReqEntry {
         bool valid;
         bool finished;
         uintptr_t spm_addr;
@@ -209,11 +340,17 @@ class L2CacheAM : public Cache
         AsyncMemReqEntry(): valid(false),
             finished(false), spm_addr(0),
             mem_addr(0) {}
-    };
+    };*/
+    PacketPtr outstandingAsyncMemPkt;
     unsigned int asyncMemReqLength;
-    std::vector<AsyncMemReqEntry> asyncMemReqs;
+    uint64_t asyncMemReqBase;
+    int64_t asyncMemFinishHead, asyncMemFinishTail;
+    int64_t asyncMemFreeHead, asyncMemFreeTail;
+    // std::vector<AsyncMemReqEntry> asyncMemReqs;
+    std::vector<uint64_t> asyncMemConfigRegs;
     int allocAsyncMemReq(uint64_t spmAddr, Addr memAddr);
     bool checkAsyncMemReq(uint64_t handle);
+    void allocReqEntryHelper(AsyncMemReqEntryState state);
 
   protected:
     void recvTimingResp(PacketPtr pkt) override;

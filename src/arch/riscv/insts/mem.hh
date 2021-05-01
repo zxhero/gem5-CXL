@@ -32,6 +32,7 @@
 
 #include <string>
 
+#include "arch/riscv/insts/bitfields.hh"
 #include "arch/riscv/insts/static_inst.hh"
 #include "cpu/exec_context.hh"
 #include "cpu/static_inst.hh"
@@ -63,6 +64,25 @@ class Store : public MemInst
 {
   protected:
     using MemInst::MemInst;
+
+    std::string generateDisassembly(
+        Addr pc, const Loader::SymbolTable *symtab) const override;
+};
+
+/**
+ * Base class for MACFG operations
+ */
+class MACFGOp : public MemInst
+{
+  protected:
+    uint64_t cfgreg;
+    uint64_t uimm;
+
+    /// Constructor
+    MACFGOp(const char *mnem, ExtMachInst _machInst, OpClass __opClass)
+        : MemInst(mnem, _machInst, __opClass),
+            cfgreg(FUNCT12), uimm(CSRIMM)
+    {}
 
     std::string generateDisassembly(
         Addr pc, const Loader::SymbolTable *symtab) const override;

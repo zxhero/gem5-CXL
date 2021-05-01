@@ -71,8 +71,9 @@ BaseCache::CacheResponsePort::CacheResponsePort(const std::string &_name,
                                           const std::string &_label)
     : QueuedResponsePort(_name, _cache, queue),
       queue(*_cache, *this, true, _label),
-      blocked(false), mustSendRetry(false), innerReqRetry(false),
-      sendRetryEvent([this]{ processSendRetry(); }, _name)
+      blocked(false), mustSendRetry(false),
+      sendRetryEvent([this]{ processSendRetry(); }, _name),
+      sendInnerRetryEvent([this]{ processInnerReqEvent(); }, _name)
 {
 }
 
@@ -202,12 +203,14 @@ BaseCache::CacheResponsePort::setBlocked()
 void
 BaseCache::CacheResponsePort::clearBlocked()
 {
-   assert(blocked);
-   DPRINTF(CachePort, "Port is accepting new requests\n");
-   blocked = false;
-   if (mustSendRetry) {
-       // @TODO: need to find a better time (next cycle?)
-       owner.schedule(sendRetryEvent, curTick() + 1);
+   // assert(blocked);
+   if (blocked) {
+       DPRINTF(CachePort, "Port is accepting new requests\n");
+       blocked = false;
+       if (mustSendRetry) {
+           // @TODO: need to find a better time (next cycle?)
+           owner.schedule(sendRetryEvent, curTick() + 1);
+       }
    }
 }
 
@@ -218,12 +221,7 @@ BaseCache::CacheResponsePort::processSendRetry()
 
     // reset the flag and call retry
     mustSendRetry = false;
-    if (innerReqRetry) {
-        innerReqRetry = false;
-        processInnerReqEvent();
-    } else {
-        sendRetryReq();
-    }
+    sendRetryReq();
 }
 
 Addr
@@ -2375,10 +2373,12 @@ void BaseCache::CpuSidePort::processInnerReqEvent()
     assert(innerPkts.size() > 0);
     PacketPtr pkt = innerPkts.front();
 
+    DPRINTF(CachePort, "Cache port %s try send "
+            "inner pkt(addr=%lx)\n",
+            name(), pkt->getAddr());
+
     if (this->recvInnerTimingReq(pkt)) {
         innerPkts.pop();
-    } else {
-        innerReqRetry = true;
     }
 }
 
@@ -2416,19 +2416,32 @@ BaseCache::CpuSidePort::tryTiming(PacketPtr pkt)
     if (cache->system->bypassCaches() || pkt->isExpressSnoop()) {
         // always let express snoop packets through even if blocked
         return true;
-    } else if (blocked || mustSendRetry || bank_busy) {
-        if (blocked || mustSendRetry) {
-            // either already committed to send a retry, or blocked
-            // not because of bank is busy
-            // the cache port is blocked (e.g. no MSHR)
-            // wait until the cache is unblocked and then send a retry
-            mustSendRetry = true;
+    } else if (blocked || mustSendRetry) {
+        // either already committed to send a retry, or blocked
+        // not because of bank is busy
+        // the cache port is blocked (e.g. no MSHR)
+        // wait until the cache is unblocked and then send a retry
+        mustSendRetry = true;
+        return false;
+    } else if (bank_busy) {
+        DPRINTF(CachePort, "Cache port %s denying new requests because the"
+                " accessing bank is busy(addr=%lx)\n",
+                name(), pkt->getAddr());
+        // because of bank is busy
+        // precisely know which tick the service will finish
+        // assert(!sendRetryEvent.scheduled());
+        if (innerRequest.count(pkt->req)) {
+            if (sendInnerRetryEvent.scheduled())
+            {
+                owner.deschedule(sendInnerRetryEvent);
+            }
+            owner.schedule(sendInnerRetryEvent,
+                cache->bank[bank_id]->finishTick());
         } else {
-            DPRINTF(CachePort, "Cache port %s denying new requests because the"
-                    " accessing bank is busy\n", name());
-            // because of bank is busy
-            // precisely know which tick the service will finish
-            assert(!sendRetryEvent.scheduled());
+            if (sendRetryEvent.scheduled())
+            {
+                owner.deschedule(sendRetryEvent);
+            }
             owner.schedule(sendRetryEvent, cache->bank[bank_id]->finishTick());
         }
         return false;

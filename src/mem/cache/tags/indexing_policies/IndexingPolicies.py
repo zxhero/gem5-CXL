@@ -47,6 +47,12 @@ class SetAssociative(BaseIndexingPolicy):
     cxx_class = 'SetAssociative'
     cxx_header = "mem/cache/tags/indexing_policies/set_associative.hh"
 
+class ReconfSetAssociative(SetAssociative):
+    type = 'ReconfSetAssociative'
+    cxx_class = 'ReconfSetAssociative'
+    cxx_header = \
+        'mem/cache/tags/indexing_policies/reconf_set_associative.hh'
+
 class SkewedAssociative(BaseIndexingPolicy):
     type = 'SkewedAssociative'
     cxx_class = 'SkewedAssociative'

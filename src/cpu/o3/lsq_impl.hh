@@ -785,6 +785,9 @@ LSQ<Impl>::SingleDataRequest::finish(const Fault &fault, const RequestPtr &req,
             if (req->isCondSwap()) {
                 assert(_res);
                 req->setExtraData(*_res);
+            } else if (req->isAsyncMemAload() ||
+                       req->isAsyncMemAstore()) {
+                req->setExtraData(*_res);
             }
             setState(State::Request);
         } else {
@@ -828,7 +831,11 @@ LSQ<Impl>::SplitDataRequest::finish(const Fault &fault, const RequestPtr &req,
                     assert (i == _fault.size());
                     assert(_res);
                     mainReq->setExtraData(*_res);
+                } else if (req->isAsyncMemAload() ||
+                       req->isAsyncMemAstore()) {
+                       req->setExtraData(*_res);
                 }
+
                 if (i == _fault.size()) {
                     _inst->fault = NoFault;
                     setState(State::Request);

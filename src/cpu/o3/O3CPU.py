@@ -157,6 +157,7 @@ class DerivO3CPU(BaseCPU):
                                    "Number of physical cc registers")
     numIQEntries = Param.Unsigned(64, "Number of instruction queue entries")
     numROBEntries = Param.Unsigned(192, "Number of reorder buffer entries")
+    # numROBEntries = Param.Unsigned(2, "Number of reorder buffer entries")
 
     smtNumFetchingThreads = Param.Unsigned(1, "SMT Number of Fetching Threads")
     smtFetchPolicy = Param.FetchPolicy('SingleThread', "SMT Fetch policy")

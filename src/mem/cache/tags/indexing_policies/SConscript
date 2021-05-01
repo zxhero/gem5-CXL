@@ -30,5 +30,6 @@ Import('*')
 SimObject('IndexingPolicies.py')
 
 Source('base.cc')
+Source('reconf_set_associative.cc')
 Source('set_associative.cc')
 Source('skewed_associative.cc')
