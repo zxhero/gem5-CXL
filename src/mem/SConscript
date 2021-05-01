@@ -144,3 +144,8 @@ DebugFlag('CXLDevice')
 Source('cxlxbar.cc')
 DebugFlag('CXLXBar')
 DebugFlag('CXLPerf')
+
+SimObject('dmem.py')
+Source('dmem_link.cc')
+DebugFlag('DMemLinkRequester')
+DebugFlag('DMemLinkResponder')
