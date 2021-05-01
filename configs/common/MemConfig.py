@@ -39,6 +39,7 @@ from __future__ import absolute_import
 import m5.objects
 from common import ObjectList
 from common import HMC
+from m5.objects import *
 
 def create_mem_intf(intf, r, i, nbr_mem_ctrls, intlv_bits, intlv_size,
                     xor_low_bit):
@@ -147,6 +148,31 @@ def config_mem(options, system):
     else:
         subsystem = system
         xbar = system.membus
+    
+    use_dmem = getattr(options, "disagregate_mem", False)
+    if use_dmem == True:
+        system.dmem_req = DMemLinkRequester(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        system.dmem_res = DMemLinkResponder(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        xbar.master = system.dmem_req.cpu_side_ports
+        system.seriallink = SerialLink(ranges=slar0,
+                                        req_size=options.link_buffer_size_req,
+                                        resp_size=options.link_buffer_size_rsp,
+                                        num_lanes=options.num_lanes_per_link,
+                                        link_speed=options.serial_link_speed,
+                                        delay=options.total_ctrl_latency)
+        system.dmem_req.mem_side_ports = system.seriallink.cpu_side_port
+        system.seriallink.mem_side_port = system.dmem_res.cpu_side_ports
+        xbar = system.dmem_res
 
     if opt_tlm_memory:
         system.external_memory = m5.objects.ExternalSlave(

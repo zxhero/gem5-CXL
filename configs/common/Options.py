@@ -115,6 +115,7 @@ def addNoISAOptions(parser):
 
 
     parser.add_option("--memchecker", action="store_true")
+    parser.add_option("--disagregate_mem", action="store_true")
 
     # Cache Options
     parser.add_option("--external-memory-system", type="string",

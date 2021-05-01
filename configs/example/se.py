@@ -76,7 +76,8 @@ def get_processes(options):
     errouts = []
     pargs = []
 
-    workloads = options.cmd.split(';')
+    print(options.cmd)
+    workloads = options.cmd.split(',')
     if options.input != "":
         inputs = options.input.split(';')
     if options.output != "":
