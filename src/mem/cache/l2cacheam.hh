@@ -229,7 +229,9 @@ class L2CacheAM : public Cache
         WRITE_FREE_LIST,
         GET_REQ_ENTRY,
         FIN_REQ_ENTRY,
-        FIN_FIN_ENTRY,
+        ALLOC_FIN_ENTRY,
+        FILL_FIN_ENTRY,
+        CLEAR_FIN_LIST,
         FIN_ALOAD,
         SPM_STATE_COUNT
     };
@@ -247,10 +249,11 @@ class L2CacheAM : public Cache
         "WRITE_FREE_LIST",
         "GET_REQ_ENTRY",
         "FIN_REQ_ENTRY",
-        "FIN_FIN_ENTRY",
+        "ALLOC_FIN_ENTRY",
+        "FILL_FIN_ENTRY",
+        "CLEAR_FIN_LIST",
         "FIN_ALOAD"
     };
-
 
     enum SpmFSMEvent {
         RECV_SPM_READ_RESP,
