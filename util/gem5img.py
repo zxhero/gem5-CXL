@@ -134,7 +134,7 @@ def findPartOffset(devFile, fileName, partition):
         print out
         exit(returncode)
     lines = out.splitlines()
-    lines = [line for line in lines if line.strip() != ""]
+    #lines = [line for line in lines if line.strip() != ""]
     # Make sure the first few lines of the output look like what we expect.
     assert(lines[0][0] == '#' or lines[0].startswith('label:'))
     assert(lines[1] == 'unit: sectors' or lines[1].startswith('label-id:'))
