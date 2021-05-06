@@ -149,31 +149,6 @@ def config_mem(options, system):
         subsystem = system
         xbar = system.membus
     
-    use_dmem = getattr(options, "disagregate_mem", False)
-    if use_dmem == True:
-        system.dmem_req = DMemLinkRequester(
-            width = 16,
-            frontend_latency = 2,
-            forward_latency = 1,
-            response_latency = 2,
-        )
-        system.dmem_res = DMemLinkResponder(
-            width = 16,
-            frontend_latency = 2,
-            forward_latency = 1,
-            response_latency = 2,
-        )
-        xbar.master = system.dmem_req.cpu_side_ports
-        system.seriallink = SerialLink(ranges=slar0,
-                                        req_size=options.link_buffer_size_req,
-                                        resp_size=options.link_buffer_size_rsp,
-                                        num_lanes=options.num_lanes_per_link,
-                                        link_speed=options.serial_link_speed,
-                                        delay=options.total_ctrl_latency)
-        system.dmem_req.mem_side_ports = system.seriallink.cpu_side_port
-        system.seriallink.mem_side_port = system.dmem_res.cpu_side_ports
-        xbar = system.dmem_res
-
     if opt_tlm_memory:
         system.external_memory = m5.objects.ExternalSlave(
             port_type="tlm_slave",
@@ -221,7 +196,7 @@ def config_mem(options, system):
     # array of memory interfaces and set their parameters to match
     # their address mapping in the case of a DRAM
     range_iter = 0
-    for r in system.mem_ranges:
+    for r in system.mem_ranges[:-1]:
         # As the loops iterates across ranges, assign them alternatively
         # to DRAM and NVM if both configured, starting with DRAM
         range_iter += 1
@@ -229,6 +204,7 @@ def config_mem(options, system):
         for i in range(nbr_mem_ctrls):
             if opt_mem_type and (not opt_nvm_type or range_iter % 2 != 0):
                 # Create the DRAM interface
+                print(i)
                 dram_intf = create_mem_intf(intf, r, i, nbr_mem_ctrls,
                                     intlv_bits, intlv_size, opt_xor_low_bit)
 
@@ -299,5 +275,75 @@ def config_mem(options, system):
         else:
             # Connect the controllers to the membus
             mem_ctrls[i].port = xbar.master
+    
+    use_dmem = getattr(options, "disagregate_mem", False)
+    if use_dmem == True:
+        system.dmem_req = DMemLinkRequester(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        system.dmem_res = DMemLinkResponder(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        xbar.master = system.dmem_req.cpu_side_ports
+        r = system.mem_ranges[1]
+        link_buffer_size_req = 10
+        link_buffer_size_rsp = 10
+        num_lanes_per_link = 16
+        serial_link_speed = 31
+        total_ctrl_latency = '100ns'
+        system.seriallink = SerialLink(ranges=r,
+                                        req_size=link_buffer_size_req,
+                                        resp_size=link_buffer_size_rsp,
+                                        num_lanes=num_lanes_per_link,
+                                        link_speed=serial_link_speed,
+                                        delay=total_ctrl_latency)
+        system.dmem_req.mem_side_ports = system.seriallink.cpu_side_port
+        system.seriallink.mem_side_port = system.dmem_res.cpu_side_ports
+        # system.dmem_req.mem_side_ports = system.dmem_res.cpu_side_ports
+        # Create the DRAM interface
+        
+        dram_intf = create_mem_intf(intf, r, 0, 1,
+                            0, intlv_size, opt_xor_low_bit)
 
+        # Set the number of ranks based on the command-line
+        # options if it was explicitly set
+        if issubclass(intf, m5.objects.DRAMInterface) and \
+           opt_mem_ranks:
+            dram_intf.ranks_per_channel = opt_mem_ranks
+
+        # Enable low-power DRAM states if option is set
+        if issubclass(intf, m5.objects.DRAMInterface):
+            dram_intf.enable_dram_powerdown = opt_dram_powerdown
+
+        if opt_elastic_trace_en:
+            dram_intf.latency = '1ns'
+            print("For elastic trace, over-riding Simple Memory "
+                "latency to 1ns.")
+
+        # Create the controller that will drive the interface
+        if opt_mem_type == "HMC_2500_1x32":
+            # The static latency of the vault controllers is estimated
+            # to be smaller than a full DRAM channel controller
+            mem_ctrl = m5.objects.MemCtrl(min_writes_per_switch = 8,
+                                     static_backend_latency = '4ns',
+                                     static_frontend_latency = '4ns')
+        elif opt_mem_type == "SimpleMemory":
+            mem_ctrl = m5.objects.SimpleMemory()
+        else:
+            mem_ctrl = m5.objects.MemCtrl()
+
+        # Hookup the controller to the interface and add to the list
+        if opt_mem_type != "SimpleMemory":
+            mem_ctrl.dram = dram_intf
+
+        mem_ctrls.append(mem_ctrl)
+        # Connect the controllers to the membus
+        mem_ctrl.port = system.dmem_res.mem_side_ports
+        
     subsystem.mem_ctrls = mem_ctrls
