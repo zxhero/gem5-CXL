@@ -1526,6 +1526,7 @@ class Packet : public Printable
      * used in new protocol
      * */
     int SNID;
+    int DNID;
     int LID;
     int TID;
     Tick old_header_delay;

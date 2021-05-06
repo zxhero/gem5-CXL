@@ -62,6 +62,7 @@ protected:
     void recvReqRetry(PortID mem_side_port_id);
 
 private:
+    int nid;
     //recieve from cpu side, send to mem side
     void processRxEvent();
     EventFunctionWrapper RxEvent;
@@ -86,10 +87,22 @@ protected:
     virtual bool recvTimingResp(PacketPtr pkt, PortID mem_side_port_id);
 
 private:
-    //recieve from cpu side, send to mem side
+    int nid;
+    //downstream
+    void downTransLayer();
+    EventFunctionWrapper downTransEvent;
+    void processDownTxEvent();
+    EventFunctionWrapper downTxEvent;
+    std::vector<std::vector<PacketPtr>> pktQueueDownTx;
+    std::vector<std::vector<PacketPtr>> pktQueueDownRx;
     
 
-    //send to cpu side, recieve from mem side
-    
+    //upstream
+    void upTransLayer();
+    EventFunctionWrapper upTransEvent;
+    void processUpTxEvent();
+    EventFunctionWrapper upTxEvent;
+    std::vector<std::vector<PacketPtr>> pktQueueUpTx;
+    std::vector<std::vector<PacketPtr>> pktQueueUpRx;
 };
 #endif //__DMEM_LINK_HH__

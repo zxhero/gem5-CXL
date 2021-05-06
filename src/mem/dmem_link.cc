@@ -4,6 +4,7 @@
 #include "mem/dmem_link.hh"
 #include "debug/DMemLinkRequester.hh"
 #include "debug/DMemLinkResponder.hh"
+#include "debug/DMemLinkRouter.hh"
 
 DMemLinkRequester::DMemLinkRequester(const DMemLinkRequesterParams *p)
     : NoncoherentXBar(p), RxEvent([this]{ processRxEvent(); }, std::string("dmemReq_rx")),
@@ -49,9 +50,11 @@ void DMemLinkRequester::processInst(PortID mem_side_port_id, std::vector<struct 
     }
 
     RequestPtr req = std::make_shared<Request>();
+    req->setPaddr(0x1);
     PacketPtr dmem_pkt = new Packet(req, MemCmd(_cmd));
     dmem_pkt->TID = mallocTID();
     int LID = 0;
+    int size = 0;
 
     for (auto pktptr = insts.begin(); pktptr != insts.end(); pktptr ++)
     {
@@ -60,8 +63,11 @@ void DMemLinkRequester::processInst(PortID mem_side_port_id, std::vector<struct 
         //Combine pkts
         pkt->LID = LID++;
         pkt->SNID = nid;
+        pkt->TID = dmem_pkt->TID;
         dmem_pkt->instructions.emplace_back(pkt);
+        size += pkt->getSize();
     }
+    dmem_pkt->setSize(size);
     // since it is a normal request, attempt to send the packet
     bool success = memSidePorts[mem_side_port_id]->sendTimingReq(dmem_pkt);
 
@@ -379,13 +385,17 @@ DMemLinkResponder::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id)
 
 void DMemLinkResponder::processInst(PortID cpu_side_port_id, std::vector<struct reqMsg> &insts, MemCmd::Command _cmd){
     RequestPtr req = std::make_shared<Request>();
+    req->setPaddr(0x2);
     PacketPtr dmem_pkt = new Packet(req, MemCmd(_cmd));
+    int size = 0;
 
     for (auto pktptr = insts.begin(); pktptr != insts.end(); pktptr ++){
         PacketPtr pkt = pktptr->pkt;
         pkt->headerDelay = 0;
+        size += pkt->getSize();
         dmem_pkt->instructions.emplace_back(pkt);
     }
+    dmem_pkt->setSize(size);
     
     // send the packet through the destination CPU-side port, and pay for
     // any outstanding latency.
@@ -488,9 +498,21 @@ void DMemLinkResponder::recvReqRetry(PortID mem_side_port_id){
 }
 
 DMemLinkRouter::DMemLinkRouter(const DMemLinkRouterParams *p)
-    : NoncoherentXBar(p)
+    : NoncoherentXBar(p), 
+    downTransEvent([this]{ downTransLayer(); }, std::string("dmemRouterDown_trans")), 
+    downTxEvent([this]{ processDownTxEvent(); }, std::string("dmemRouterDown_tx")),
+    upTransEvent([this]{ downTransLayer(); }, std::string("dmemRouterUp_trans")), 
+    upTxEvent([this]{ processDownTxEvent(); }, std::string("dmemRouterUp_tx"))
 {
+    pktQueueDownTx.resize(p->port_mem_side_ports_connection_count);
+    schedule(&downTxEvent, clockEdge(Cycles(1)));
+    schedule(&downTransEvent, clockEdge(Cycles(1)));
+    pktQueueDownRx.resize(p->port_cpu_side_ports_connection_count);
 
+    pktQueueUpTx.resize(p->port_cpu_side_ports_connection_count);
+    schedule(&upTxEvent, clockEdge(Cycles(1)));
+    schedule(&upTransEvent, clockEdge(Cycles(1)));
+    pktQueueUpRx.resize(p->port_mem_side_ports_connection_count);
 }
 
 DMemLinkRouter::~DMemLinkRouter()
@@ -504,9 +526,132 @@ DMemLinkRouterParams::create()
     return new DMemLinkRouter(this);
 }
 
+void DMemLinkRouter::downTransLayer(){
+    schedule(&downTransEvent, clockEdge(Cycles(1)));
+    for (auto i = pktQueueDownRx.begin(); i != pktQueueDownRx.end(); i++){
+        if(i->empty())
+            continue;
+
+        PortID cpu_side_port_id = i - pktQueueDownRx.begin();
+        auto pktptr = i->begin();
+            
+        // determine the destination based on the address
+        PortID mem_side_port_id = findPort((*pktptr)->getAddrRange());
+
+        // test if the layer should be considered occupied for the current
+        // port
+        if (!reqLayers[mem_side_port_id]->tryTiming(NULL)) {
+             DPRINTF(DMemLinkRouter, "processRxEvent: dest %d BUSY\n",
+                    mem_side_port_id);
+            continue;
+        }
+
+        //generate new msg request
+        int TID = (*pktptr)->TID;
+        int SNID = (*pktptr)->SNID;
+        RequestPtr req = std::make_shared<Request>();
+        req->setPaddr(0x1);
+
+        PacketPtr dmem_pkt;
+        if((*pktptr)->isRead()){
+            dmem_pkt = new Packet(req, MemCmd(MemCmd::Command::MemRd));
+        }else if((*pktptr)->isWrite()){
+            dmem_pkt = new Packet(req, MemCmd(MemCmd::Command::MemWr));
+        }
+        dmem_pkt->instructions.emplace_back((*pktptr));
+        Tick packetFinishTime = clockEdge(Cycles(1));
+        int size = (*pktptr)->getSize();
+        //combine the command from same transcation and with same DNID into new request
+        for(pktptr ++ ;pktptr != i->end(); ){
+
+            PacketPtr pkt = *pktptr;
+            if(mem_side_port_id == findPort(pkt->getAddrRange()) 
+             && pkt->TID == TID && pkt->SNID == SNID){
+                // store the old header delay so we can restore it if needed
+                Tick old_header_delay = pkt->headerDelay;
+
+                // a request sees the frontend and forward latency
+                Tick xbar_delay = (frontendLatency + forwardLatency) * clockPeriod();
+
+                // set the packet header and payload delay
+                calcPacketTiming(pkt, xbar_delay);
+
+                // determine how long to be crossbar layer is busy
+                packetFinishTime += (pkt->payloadDelay );
+
+                // since it is a normal request, attempt to send the packet
+                {
+                    size += pkt->getSize();
+                    dmem_pkt->instructions.emplace_back(pkt);
+                    pktptr = i->erase(pktptr);
+
+                    // store size and command as they might be modified when
+                    // forwarding the packet
+                    unsigned int pkt_size = pkt->hasData() ? pkt->getSize() : 0;
+                    unsigned int pkt_cmd = pkt->cmdToIndex();
+
+                    // stats updates
+                    pktCount[cpu_side_port_id][mem_side_port_id]++;
+                    pktSize[cpu_side_port_id][mem_side_port_id] += pkt_size;
+                    transDist[pkt_cmd]++;
+                }
+            }else{
+                pktptr++;
+            }
+        }
+        dmem_pkt->setSize(size);
+        pktQueueDownTx[mem_side_port_id].emplace_back(dmem_pkt);
+        reqLayers[mem_side_port_id]->succeededTiming(packetFinishTime);
+    }
+}
+
+void DMemLinkRouter::processDownTxEvent(){
+    schedule(&downTxEvent, clockEdge(Cycles(1)));
+    for (auto i = pktQueueDownTx.begin(); i != pktQueueDownTx.end(); i++)
+    {
+        // determine the destination based on the address
+        PortID mem_side_port_id = i - pktQueueDownTx.begin();
+
+        // since it is a normal request, attempt to send the packet
+        if(i->empty() == false){
+            bool success = memSidePorts[mem_side_port_id]->sendTimingReq((i->front()));
+            if(success){
+                DPRINTF(DMemLinkRouter, "processInst: send success \n");
+                i->erase(i->begin());
+            }
+        }
+    }
+    
+    return ;
+}
+
 bool DMemLinkRouter::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
-    //TODO
+    // determine the source port based on the id
+    ResponsePort *src_port = cpuSidePorts[cpu_side_port_id];
+
+    DPRINTF(DMemLinkRouter, "recvTimingReq: src %s %s\n",
+            src_port->name(), pkt->cmdString());
+
+    if(pkt->DNID == nid){
+        for (auto pktptr = pkt->instructions.begin(); pktptr != pkt->instructions.end(); pktptr ++){
+
+            pktQueueDownRx[cpu_side_port_id].emplace_back(*pktptr);
+        }
+        delete pkt;
+    }else{
+        pktQueueDownRx[cpu_side_port_id].emplace_back(pkt);
+    }
+    
+    
     return true;
+}
+
+void DMemLinkRouter::upTransLayer(){
+
+}
+
+void DMemLinkRouter::processUpTxEvent(){
+
 }
 
 bool DMemLinkRouter::recvTimingResp(PacketPtr pkt, PortID mem_side_port_id){
