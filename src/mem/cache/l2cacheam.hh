@@ -63,9 +63,10 @@ class MSHR;
 
 enum MemAccConfigRegs
 {
-    MEMACC_CFG_QBASE = 0x0,
+    MEMACC_CFG_QBASE =   0x0,
     MEMACC_CFG_QLENGTH = 0x1,
-    MEMACC_CFG_HEAD0 = 0x2,
+    MEMACC_CFG_HEAD0 =   0x2,
+    MEMACC_CFG_GETFIN =  0x3,
 
     MEMACC_CFG_COUNT,
 };
@@ -225,7 +226,9 @@ class L2CacheAM : public Cache
         EXEC_ASTORE,
         EXEC_ALOAD,
         EXEC_TESTFIN,
+        EXEC_GETFIN,
         FIN_TEST_FIN,
+        FIN_GET_FIN,
         WRITE_FREE_LIST,
         GET_REQ_ENTRY,
         FIN_REQ_ENTRY,
@@ -245,7 +248,9 @@ class L2CacheAM : public Cache
         "EXEC_ASTORE",
         "EXEC_ALOAD",
         "EXEC_TESTFIN",
+        "EXEC_GETFIN",
         "FIN_TEST_FIN",
+        "FIN_GET_FIN",
         "WRITE_FREE_LIST",
         "GET_REQ_ENTRY",
         "FIN_REQ_ENTRY",
@@ -265,6 +270,7 @@ class L2CacheAM : public Cache
         ALOAD_REQ,
         ASTORE_REQ,
         TESTFIN_REQ,
+        GETFIN_REQ,
         SPM_FSM_EVENT_COUNT
     };
     const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
@@ -276,7 +282,8 @@ class L2CacheAM : public Cache
         "RECONF_QUEUE_LENGTH",
         "ALOAD_REQ",
         "ASTORE_REQ",
-        "TESTFIN_REQ"
+        "TESTFIN_REQ",
+        "GETFIN_REQ"
     };
 
     struct AsyncMemReqEntry {
@@ -348,6 +355,7 @@ class L2CacheAM : public Cache
     unsigned int asyncMemReqLength;
     uint64_t asyncMemReqBase;
     int64_t asyncMemFinishHead, asyncMemFinishTail;
+    int64_t asyncMemFinishCount;
     int64_t asyncMemFreeHead, asyncMemFreeTail;
     // std::vector<AsyncMemReqEntry> asyncMemReqs;
     std::vector<uint64_t> asyncMemConfigRegs;

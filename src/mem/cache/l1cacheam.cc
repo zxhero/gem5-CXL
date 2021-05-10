@@ -144,9 +144,9 @@ void L1CacheAM::recvTimingReq(PacketPtr pkt)
     //     spmCache->getPort("cpu_side").recvTimingReq(pkt);
     // }
     // else {
-    DPRINTF(CacheAM,
-        "%s L1CacheAM: access normal cache at %lx\n",
-        __func__, pkt->getAddr());
+    // DPRINTF(CacheAM,
+    //     "%s L1CacheAM: access normal cache at %lx\n",
+    //     __func__, pkt->getAddr());
     //     normalCache->getPort("cpu_side").recvTimingReq(pkt);
     // }
     return Cache::recvTimingReq(pkt);
