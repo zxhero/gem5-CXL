@@ -254,6 +254,7 @@ enum MiscRegIndex {
     MISCREG_QBASE,
     MISCREG_QLENGTH,
     MISCREG_HEAD0,
+    MISCREG_GETFIN,
 
     NUM_MISCREGS
 };
@@ -429,6 +430,7 @@ enum MACFG_Index {
     MACFG_QBASE = 0x0,
     MACFG_QLENGTH = 0x1,
     MACFG_HEAD0 = 0x2,
+    MACFG_GETFIN = 0x3,
 };
 
 struct CSRMetadata
@@ -608,6 +610,7 @@ const std::map<int, CSRMetadata> MACFGData = {
     {MACFG_QBASE, {"qbase", MISCREG_QBASE}},
     {MACFG_QLENGTH, {"qlength", MISCREG_QLENGTH}},
     {MACFG_HEAD0, {"head0", MISCREG_HEAD0}},
+    {MACFG_GETFIN, {"getfin", MISCREG_GETFIN}},
 };
 
 /**

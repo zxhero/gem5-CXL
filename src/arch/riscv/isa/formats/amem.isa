@@ -46,12 +46,31 @@ def template MACFGWrConstructor {{
     }
 }};
 
-
 def template MACFGRdConstructor {{
     %(class_name)s::%(class_name)s(ExtMachInst machInst):
         %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
     {
         %(constructor)s;
+
+        // overwrite default flags
+        // flags[IsMemRef] = true;
+        // flags[IsLoad] = true;
+        // flags[IsStore] = false;
+        // flags[IsAtomic] = true;
+    }
+}};
+
+def template GetFinConstructor {{
+    %(class_name)s::%(class_name)s(ExtMachInst machInst):
+        %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
+    {
+        %(constructor)s;
+
+        // overwrite default flags
+        flags[IsMemRef] = true;
+        flags[IsLoad] = true;
+        flags[IsStore] = false;
+        flags[IsAtomic] = false;
     }
 }};
 
@@ -68,11 +87,70 @@ def template MACFGDeclare {{
         Fault execute(ExecContext *, Trace::InstRecord *) const override;
         Fault initiateAcc(ExecContext *, Trace::InstRecord *) const override;
         Fault completeAcc(PacketPtr, ExecContext *,
-                          Trace::InstRecord *) const override {
-            return NoFault;
-        }
+                          Trace::InstRecord *) const override;
     };
 }};
+
+def template GetFinExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+    Fault
+    %(class_name)s::initiateAcc(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Fault fault = NoFault;
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        RegVal data = 0, olddata;
+        if (MACFGData.find(cfgreg) != MACFGData.end()) {
+            assert(cfgreg == MACFG_GETFIN);
+            fault = initiateMemRead(xc, traceData,
+                0x1000000000000000 + cfgreg, data,
+                Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE);
+        } else {
+            std::string error = csprintf("Illegal MACFG index %#x\n", cfgreg);
+            fault = make_shared<IllegalInstFault>(error, machInst);
+            olddata = 0;
+        }
+        DPRINTF(RiscvMisc, "Reading MACFG %s: %#x\n",
+                MACFGData.at(cfgreg).name, olddata);
+        data = olddata;
+
+        if (fault == NoFault) {
+            %(code)s;
+            if (fault == NoFault) {
+                %(op_wb)s;
+            }
+        }
+        return fault;
+    }
+    Fault
+    %(class_name)s::completeAcc(PacketPtr pkt, ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Fault fault = NoFault;
+        if (cfgreg == MACFG_GETFIN) {
+            %(op_decl)s;
+            %(op_rd)s;
+            RegVal data;
+            getMemLE(pkt, data, traceData);
+            if (fault == NoFault) {
+                %(code)s;
+                if (fault == NoFault) {
+                    %(op_wb)s;
+                }
+            }
+        }
+        return NoFault;
+    }
+}};
+
 
 def template MACFGRdExecute {{
     Fault
@@ -84,8 +162,9 @@ def template MACFGRdExecute {{
         %(op_decl)s;
         %(op_rd)s;
 
-        RegVal data, olddata;
+        RegVal data = 0, olddata;
         if (MACFGData.find(cfgreg) != MACFGData.end()) {
+            assert(cfgreg != MACFG_GETFIN);
             olddata = xc->readMiscReg(MACFGData.at(cfgreg).physIndex);
         } else {
             std::string error = csprintf("Illegal MACFG index %#x\n", cfgreg);
@@ -108,6 +187,22 @@ def template MACFGRdExecute {{
     %(class_name)s::initiateAcc(ExecContext *xc,
         Trace::InstRecord *traceData) const
     {
+        return NoFault;
+    }
+    Fault
+    %(class_name)s::completeAcc(PacketPtr pkt, ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Fault fault = NoFault;
+        if (cfgreg == MACFG_GETFIN) {
+            %(op_decl)s;
+            %(op_rd)s;
+            RegVal data;
+            getMemLE(pkt, data, traceData);
+            if (fault == NoFault) {
+                %(op_wb)s;
+            }
+        }
         return NoFault;
     }
 }};
@@ -165,6 +260,10 @@ def template MACFGWrExecute {{
             }
         }
         return fault;
+    }
+    Fault %(class_name)s::completeAcc(PacketPtr, ExecContext *,
+                      Trace::InstRecord *) const {
+        return NoFault;
     }
 }};
 
@@ -365,6 +464,14 @@ def format MACFGRdOp(code, *opt_flags) {{
     decoder_output = MACFGRdConstructor.subst(iop)
     decode_block = BasicDecode.subst(iop)
     exec_output = MACFGRdExecute.subst(iop)
+}};
+
+def format GetFin(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'MACFGOp', {"code": code}, opt_flags)
+    header_output = MACFGDeclare.subst(iop)
+    decoder_output = GetFinConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = GetFinExecute.subst(iop)
 }};
 
 def format MACFGWrOp(code, *opt_flags) {{

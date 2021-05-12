@@ -958,14 +958,23 @@ class Packet : public Printable
                 return MemCmd::HTMAbort;
             else
                 return MemCmd::HTMReq;
-        } else if (req->isLLSC())
+        } else if (req->isLLSC()) {
             return MemCmd::LoadLockedReq;
-        else if (req->isPrefetchEx())
+        } else if (req->isPrefetchEx()) {
             return MemCmd::SoftPFExReq;
-        else if (req->isPrefetch())
+        } else if (req->isPrefetch()) {
             return MemCmd::SoftPFReq;
-        else
+        } else if (req->isAsyncMemAload() ||
+                   req->isAsyncMemAstore() ||
+                   req->isAsyncTestFin()) {
+            assert(0);
             return MemCmd::ReadReq;
+        } else if (req->isAsyncCfgReg()) {
+            return MemCmd::CfgRegReq;
+        }
+        else {
+            return MemCmd::ReadReq;
+        }
     }
 
     /**
