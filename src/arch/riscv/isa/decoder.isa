@@ -445,18 +445,21 @@ decode QUADRANT default Unknown::unknown() {
                 format GetFin {
                     0x3: getfin({{
                         Rd = data;
-                    }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
+                    }}, IsNonSpeculative, No_OpClass);
+                    // }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
                 }
                 format MACFGRdOp {
                     0x0, 0x1, 0x2: memaccread({{
                         Rd = data;
-                    }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
+                    }}, IsNonSpeculative, No_OpClass);
+                    // }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
                 }
             }
             format MACFGWrOp {
                 0x4: memaccwrite({{
                     data = Rs1;
-                }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
+                }}, IsNonSpeculative, No_OpClass);
+                // }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
             }
         }
 
@@ -466,6 +469,11 @@ decode QUADRANT default Unknown::unknown() {
                 }}, uint64_t, IsMemBarrier, No_OpClass);
                 0x1: fence_i({{
                 }}, uint64_t, IsNonSpeculative, IsSerializeAfter, No_OpClass);
+            }
+            format FlushOp {
+                0x2: dflush({{
+                    EA = Rs1_ud + sext<12>(IMM12);
+                }}, IsNonSpeculative, No_OpClass);
             }
         }
 
