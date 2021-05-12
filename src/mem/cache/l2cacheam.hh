@@ -93,6 +93,7 @@ class L2CacheAM : public Cache
         { }
     };
 
+    Cycles logicLatency;
     unsigned spmWays;
     unsigned numSets;
     unsigned asyncmemOutstanding;
@@ -126,7 +127,24 @@ class L2CacheAM : public Cache
         Stats::Formula bwWrite;
         /** Total bandwidth from this memory */
         Stats::Formula bwTotal;
+
+        /** Async Mem Request */
+        Stats::Scalar numRequest;
+        /** number of ALoad request */
+        Stats::Scalar numALoad;
+        /** number of AStore request */
+        Stats::Scalar numAStore;
+        /** number of TestFin request */
+        Stats::Scalar numTestFin;
+        /** number of Getfin request */
+        Stats::Scalar numGetFin;
+        /** max number of pending AM request */
+        Stats::Scalar maxPendingReq;
+        /** max number of outstanding AM request */
+        Stats::Scalar maxOutstandingReq;
     } spmstats;
+
+
 
     std::list<LockedAddr> spmLockedAddrList;
     void spmTrackLoadLocked(PacketPtr pkt);
@@ -356,6 +374,7 @@ class L2CacheAM : public Cache
     uint64_t asyncMemReqBase;
     int64_t asyncMemFinishHead, asyncMemFinishTail;
     int64_t asyncMemFinishCount;
+    int64_t asyncMemOutstandingCount;
     int64_t asyncMemFreeHead, asyncMemFreeTail;
     // std::vector<AsyncMemReqEntry> asyncMemReqs;
     std::vector<uint64_t> asyncMemConfigRegs;
