@@ -15,6 +15,12 @@ DMemLinkRequester::DMemLinkRequester(const DMemLinkRequesterParams *p)
     schedule(&RxEvent, clockEdge(Cycles(10)));
     pktQueueTx.resize(p->port_mem_side_ports_connection_count);
     schedule(&TxEvent, clockEdge(Cycles(10)));
+    RxWaitRetey.resize(p->port_mem_side_ports_connection_count);
+    for (auto i = RxWaitRetey.begin(); i != RxWaitRetey.end(); i++)
+    {
+        *i = false;
+    }
+    
 }
 
 DMemLinkRequester::~DMemLinkRequester()
@@ -83,8 +89,12 @@ void DMemLinkRequester::processInst(PortID mem_side_port_id, std::vector<struct 
             pkt->headerDelay = pkt->old_header_delay;
         }
         packetFinishTime = clockPeriod();//clockEdge(Cycles(1));*/
+        DPRINTF(DMemLinkRequester, "processInst: send fail\n");
+        RxWaitRetey[mem_side_port_id] = true;
         delete dmem_pkt;
-        perror("processInst: send fail");
+        for (auto pktptr = insts.begin(); pktptr != insts.end(); pktptr ++){
+            pktQueueRx[mem_side_port_id].emplace_back(*pktptr);
+        }
     }else{
         for (auto pktptr = insts.begin(); pktptr != insts.end(); pktptr ++){
             PacketPtr pkt = pktptr->pkt;
@@ -99,8 +109,9 @@ void DMemLinkRequester::processInst(PortID mem_side_port_id, std::vector<struct 
             }
         }
         DPRINTF(DMemLinkRequester, "processInst: send success \n");
-        insts.clear();
+        
     }
+    insts.clear();
     return ;
 }
 
@@ -111,6 +122,8 @@ void DMemLinkRequester::processRxEvent(){
     {
         /* code */
         PortID mem_side_port_id = (i - pktQueueRx.begin());
+        if(RxWaitRetey[mem_side_port_id])
+            continue;
         
         for (auto pktptr = i->begin(); pktptr != i->end(); pktptr = i->erase(pktptr))
         {
@@ -134,7 +147,8 @@ void DMemLinkRequester::processRxEvent(){
         }
 
         processInst(mem_side_port_id, LDreq, MemCmd::Command::MemRd);
-        processInst(mem_side_port_id, STreq, MemCmd::Command::MemWr);
+        if(!RxWaitRetey[mem_side_port_id])
+            processInst(mem_side_port_id, STreq, MemCmd::Command::MemWr);
     }
 }
 
@@ -260,6 +274,11 @@ DMemLinkRequester::recvTimingResp(PacketPtr pkt, PortID mem_side_port_id)
     }
     
     return true;
+}
+
+void DMemLinkRequester::recvReqRetry(PortID mem_side_port_id){
+    RxWaitRetey[mem_side_port_id] = false;
+    return ;
 }
 
 DMemLinkResponder::DMemLinkResponder(const DMemLinkResponderParams *p)
