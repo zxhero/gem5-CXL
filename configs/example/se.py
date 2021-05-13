@@ -85,7 +85,7 @@ def get_processes(options):
     if options.errout != "":
         errouts = options.errout.split(';')
     if options.options != "":
-        pargs = options.options.split(';')
+        pargs = options.options.split(',')
 
     idx = 0
     for wrkld in workloads:
@@ -109,6 +109,7 @@ def get_processes(options):
         if len(errouts) > idx:
             process.errout = errouts[idx]
 
+        print(process.cmd)
         multiprocesses.append(process)
         idx += 1
 
@@ -174,7 +175,7 @@ addr1 = AddrRange(options.mem_size)
 addr2 = AddrRange(addr1.start + addr1.size(), size = '512MB')
 system = System(cpu = [CPUClass(cpu_id=i) for i in range(np)],
                 mem_mode = test_mem_mode,
-                mem_ranges = [addr2, addr1],
+                mem_ranges = [addr1, addr2],
                 cache_line_size = options.cacheline_size,
                 workload = NULL)
 

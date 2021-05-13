@@ -274,10 +274,38 @@ def config_mem(options, system):
             mem_ctrls[i].dram.device_size = options.hmc_dev_vault_size
         else:
             # Connect the controllers to the membus
-            mem_ctrls[i].port = xbar.master
+            mem_ctrls[i].monitor = CommMonitor()
+            xbar.master = mem_ctrls[i].monitor.cpu_side_port
+            mem_ctrls[i].port = mem_ctrls[i].monitor.mem_side_port
     
     use_dmem = getattr(options, "disagregate_mem", False)
     if use_dmem == True:
+        if options.test_hybrid:
+            intlv_size = max(128, system.cache_line_size.value)
+            intlv_bits = 1
+            intlv_low_bit = int(math.log(intlv_size, 2))
+            r = AddrRange(start = system.mem_ranges[1].start, size = '512MB',
+                    intlvHighBit = \
+                        intlv_low_bit + intlv_bits - 1,
+                    xorHighBit = 0,
+                    intlvBits = intlv_bits,
+                    intlvMatch = 0)
+            r2 = AddrRange(start = system.mem_ranges[1].start, size = '512MB',
+                    intlvHighBit = \
+                        intlv_low_bit + intlv_bits - 1,
+                    xorHighBit = 0,
+                    intlvBits = intlv_bits,
+                    intlvMatch = 1)
+            system.mem_ctrl = MemCtrl()
+            mc = system.mem_ctrl
+            mc.dram = DDR3_1600_8x8() #DDR4_2400_8x8
+            mc.dram.range = r2
+            mc.monitor = CommMonitor()
+            system.membus.master = mc3.monitor.cpu_side_port
+            mc.port = mc3.monitor.mem_side_port
+        else:
+            r = system.mem_ranges[1]
+
         system.dmem_req = DMemLinkRequester(
             width = 16,
             frontend_latency = 2,
@@ -290,13 +318,14 @@ def config_mem(options, system):
             forward_latency = 1,
             response_latency = 2,
         )
-        xbar.master = system.dmem_req.cpu_side_ports
-        r = system.mem_ranges[1]
+        system.dmem_req.monitor = CommMonitor()
+        xbar.master = system.dmem_req.monitor.cpu_side_port
+        system.dmem_req.monitor.mem_side_port = system.dmem_req.cpu_side_ports
         link_buffer_size_req = 10
         link_buffer_size_rsp = 10
         num_lanes_per_link = 16
         serial_link_speed = 31
-        total_ctrl_latency = '100ns'
+        total_ctrl_latency = '300ns'
         system.seriallink = SerialLink(ranges=r,
                                         req_size=link_buffer_size_req,
                                         resp_size=link_buffer_size_rsp,
@@ -307,7 +336,7 @@ def config_mem(options, system):
         system.seriallink.mem_side_port = system.dmem_res.cpu_side_ports
         # system.dmem_req.mem_side_ports = system.dmem_res.cpu_side_ports
         # Create the DRAM interface
-        
+        intf = ObjectList.mem_list.get("DDR3_1600_8x8")
         dram_intf = create_mem_intf(intf, r, 0, 1,
                             0, intlv_size, opt_xor_low_bit)
 
