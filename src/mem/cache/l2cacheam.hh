@@ -57,6 +57,8 @@
 #include "mem/request.hh"
 #include "mem/simple_mem.hh"
 
+#define FL_REG_LENGTH 8
+
 class CacheBlk;
 struct L2CacheAMParams;
 class MSHR;
@@ -142,6 +144,10 @@ class L2CacheAM : public Cache
         Stats::Scalar maxPendingReq;
         /** max number of outstanding AM request */
         Stats::Scalar maxOutstandingReq;
+        /** max number of used entry */
+        Stats::Scalar maxFinishCount;
+        /** max number of used entry */
+        Stats::Scalar maxUsedEntry;
     } spmstats;
 
 
@@ -376,11 +382,15 @@ class L2CacheAM : public Cache
     int64_t asyncMemFinishCount;
     int64_t asyncMemOutstandingCount;
     int64_t asyncMemFreeHead, asyncMemFreeTail;
+    uintptr_t asyncMemReqEnd, asyncMemFreeEnd;
+    uintptr_t tempFreeListBase;
+    uint16_t tempFreeListReg[FL_REG_LENGTH];
     // std::vector<AsyncMemReqEntry> asyncMemReqs;
     std::vector<uint64_t> asyncMemConfigRegs;
     int allocAsyncMemReq(uint64_t spmAddr, Addr memAddr);
     bool checkAsyncMemReq(uint64_t handle);
     void allocReqEntryHelper(AsyncMemReqEntryState state);
+    void fillReqEntryHelper(uint64_t spm_addr_pkt_id);
 
   protected:
     void recvTimingResp(PacketPtr pkt) override;

@@ -58,6 +58,7 @@
 #include "cpu/thread_context.hh"
 #include "debug/Cache.hh"
 #include "debug/CacheAM.hh"
+#include "debug/CacheAMReq.hh"
 #include "debug/CacheTags.hh"
 #include "debug/CacheVerbose.hh"
 #include "debug/LLSC.hh"
@@ -87,8 +88,8 @@ L2CacheAM::L2CacheAM(const L2CacheAMParams *p)
       releaseEvent([this] { spmRelease(); }, name()),
       dequeueEvent([this] { spmDequeue(); }, name()),
       retryProcessAMReqEvent([this] { retryProcessAMReq(); }, name()),
-      retryProcessAMRespEvent([this] { retryProcessAMResp(); }, name()),
       pendingAsyncMemPkts(),
+      retryProcessAMRespEvent([this] { retryProcessAMResp(); }, name()),
       pendingAsyncMemRespPkts(),
       outstandingAsyncMemPkt(nullptr),
       asyncMemReqLength(32),
@@ -320,7 +321,11 @@ L2CacheAM::SpmStats::SpmStats(L2CacheAM &_mem)
       maxPendingReq(this, "max_pending_asyncmem_req",
              "Maximum number of pending asynchronous memory request"),
       maxOutstandingReq(this, "max_outstanding_asyncmem_req",
-             "Maximum number of outstanding asynchronous memory request")
+             "Maximum number of outstanding asynchronous memory request"),
+      maxFinishCount(this, "max_finish_count",
+             "Maximum number of finish count"),
+      maxUsedEntry(this, "max_used_req_entry",
+             "Maximum number of used asynchronous memory entry")
 {
 }
 
@@ -622,6 +627,16 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
     if (pkt->cmd == MemCmd::AsyncMemWrReq ||
         pkt->cmd == MemCmd::AsyncMemLdReq)
     {
+        uint64_t used_entrys =
+            asyncMemReqLength -
+            ((asyncMemFreeTail + asyncMemReqLength - asyncMemFreeHead) %
+                asyncMemReqLength);
+        DPRINTF(CacheAMReq,
+                "L2CacheAMReq: %s at tick %ld"
+                "(finish=%d, used=%d, outstanding=%d)\n",
+                pkt->cmd == MemCmd::AsyncMemWrReq ? "astore": "aload",
+                curTick(), asyncMemFinishCount,
+                used_entrys, asyncMemOutstandingCount);
         pendingAsyncMemPkts.push_back(pkt);
         if (pendingAsyncMemPkts.size() >= asyncmemOutstanding) {
             setBlocked(Blocked_NoAMPktQueues);
@@ -681,6 +696,17 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
     }
 
     if (pkt->cmd == MemCmd::TestFinReq) {
+        uint64_t used_entrys =
+            asyncMemReqLength -
+            ((asyncMemFreeTail + asyncMemReqLength - asyncMemFreeHead) %
+                asyncMemReqLength);
+        uint64_t handle = 0;
+        pkt->writeData((uint8_t*)&handle);
+        DPRINTF(CacheAMReq,
+                "L2CacheAMReq: testfin(handle=%d) at tick %ld"
+                "(finish=%d, used=%d, outstanding=%d)\n",
+                handle, curTick(),
+                asyncMemFinishCount, used_entrys, asyncMemOutstandingCount);
         pendingAsyncMemPkts.push_back(pkt);
         if (pendingAsyncMemPkts.size() >= asyncmemOutstanding) {
             setBlocked(Blocked_NoAMPktQueues);
@@ -721,7 +747,16 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
             outstandingAsyncMemPkt = pkt;
             spmFsmProcess(RECONF_QUEUE_LENGTH, nullptr);
             return;
-          case MEMACC_CFG_GETFIN:
+          case MEMACC_CFG_GETFIN: {
+            uint64_t used_entrys =
+                asyncMemReqLength -
+                ((asyncMemFreeTail + asyncMemReqLength - asyncMemFreeHead) %
+                    asyncMemReqLength);
+            DPRINTF(CacheAMReq,
+                    "L2CacheAMReq: getfin at tick %ld"
+                    "(finish=%d, used=%d, outstanding=%d)\n",
+                    curTick(), asyncMemFinishCount,
+                    used_entrys, asyncMemOutstandingCount);
             pendingAsyncMemPkts.push_back(pkt);
             if (pendingAsyncMemPkts.size() >= asyncmemOutstanding) {
                 setBlocked(Blocked_NoAMPktQueues);
@@ -731,6 +766,7 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
             }
             retryProcessAMReq();
             return;
+          }
           default:
             break;
         }
@@ -894,6 +930,8 @@ void L2CacheAM::rebuildAsyncMemReqQueue()
         _pkt->setData(tmpBuf);
         cpuSidePort.schedInnerTimingReq(_pkt, clockEdge(dataLatency));
     } else {
+        asyncMemReqEnd = asyncMemReqBase +
+            asyncMemReqLength * MEMREQ_ENTRY_SIZE;
         stateMachine.state = BUILD_FREE_LIST;
         stateMachine.val = asyncMemReqLength - 1;
         asyncMemFreeHead = 0;
@@ -917,6 +955,9 @@ void L2CacheAM::rebuildAsyncMemReqFreeList()
         _pkt->setData((uint8_t*)&freeId);
         cpuSidePort.schedInnerTimingReq(_pkt, clockEdge(dataLatency));
     } else {
+        memset(tempFreeListReg, 0, sizeof(tempFreeListReg));
+        asyncMemFreeEnd = asyncMemReqEnd +
+            asyncMemReqLength * FREELIST_ENTRY_SIZE;
         stateMachine.state = BUILD_FIN_LIST;
         stateMachine.val = asyncMemReqLength;
         asyncMemFinishHead = 0;
@@ -1000,6 +1041,40 @@ void L2CacheAM::retryProcessAMResp()
     }
 }
 
+void L2CacheAM::fillReqEntryHelper(uint64_t spm_addr_pkt_id)
+{
+      assert(0 < spm_addr_pkt_id &&
+             spm_addr_pkt_id <= asyncMemReqLength);
+      spm_addr_pkt_id = spm_addr_pkt_id - 1;
+
+      PacketPtr reqpkt = outstandingAsyncMemPkt;
+
+      uint64_t headregval = reqpkt->req->getExtraData();
+      uint64_t spm_addr = 0;
+      reqpkt->writeData((uint8_t *)&spm_addr);
+      PacketPtr spm_pkt = buildSpmAccessPacket(asyncMemReqBase +
+          spm_addr_pkt_id * MEMREQ_ENTRY_SIZE,
+          false, MEMREQ_ENTRY_SIZE);
+      AsyncMemReqEntry entry = stateMachine.entry;
+      spm_pkt->setData((uint8_t*)&entry);
+      // write req entry
+      cpuSidePort.schedInnerTimingReq(spm_pkt,
+          clockEdge(dataLatency));
+
+      stateMachine.state = FILL_REQ_ENTRY;
+
+      reqpkt->makeTimingResponse();
+
+      // return spm_addr_pkt_id + 1 to user
+      stateMachine.val2 = spm_addr_pkt_id + 1;
+      reqpkt->setData((uint8_t *)&stateMachine.val2);
+      stateMachine.val2 = spm_addr_pkt_id;
+
+      cpuSidePort.schedTimingResp(reqpkt,
+          clockEdge(logicLatency));
+      outstandingAsyncMemPkt = nullptr;
+}
+
 void L2CacheAM::allocReqEntryHelper(AsyncMemReqEntryState state)
 {
     uint64_t async_req_spm_addr = 0;
@@ -1012,18 +1087,45 @@ void L2CacheAM::allocReqEntryHelper(AsyncMemReqEntryState state)
         if (spmstats.maxOutstandingReq.total() < asyncMemOutstandingCount) {
             spmstats.maxOutstandingReq =asyncMemOutstandingCount;
         }
-        stateMachine.state = ALLOC_REQ_ENTRY;
         stateMachine.entry = memReqEntry;
         uint64_t freeheadAddr = asyncMemReqBase +
             asyncMemReqLength * MEMREQ_ENTRY_SIZE +
             asyncMemFreeHead * FREELIST_ENTRY_SIZE;
-        // read freeList
-        PacketPtr spmpkt = buildSpmAccessPacket(
-            freeheadAddr, true, FREELIST_ENTRY_SIZE);
+
+        uint64_t pos = (freeheadAddr %
+            (FL_REG_LENGTH * sizeof(uint16_t))) / sizeof(uint16_t);
+        uint64_t spm_addr_pkt_id = tempFreeListReg[pos];
+
+        if (spm_addr_pkt_id != 0 &&
+            freeheadAddr - tempFreeListBase <
+                (FREELIST_ENTRY_SIZE * FL_REG_LENGTH) &&
+            freeheadAddr >= tempFreeListBase) {
+            tempFreeListReg[pos] = 0;
+            fillReqEntryHelper(spm_addr_pkt_id);
+        } else {
+            stateMachine.state = ALLOC_REQ_ENTRY;
+            stateMachine.val2 = freeheadAddr;
+            uintptr_t alignedSpmAddr = freeheadAddr -
+                    freeheadAddr %
+                        (FREELIST_ENTRY_SIZE * FL_REG_LENGTH);
+            tempFreeListBase = alignedSpmAddr;
+            // read freeList
+            PacketPtr spmpkt = buildSpmAccessPacket(
+                alignedSpmAddr, true,
+                FREELIST_ENTRY_SIZE * FL_REG_LENGTH);
+            cpuSidePort.schedInnerTimingReq(spmpkt,
+                clockEdge(dataLatency));
+        }
         asyncMemFreeHead =
             (asyncMemFreeHead + 1) % asyncMemReqLength;
-        cpuSidePort.schedInnerTimingReq(spmpkt,
-            clockEdge(dataLatency));
+        uint64_t used_entrys =
+            asyncMemReqLength -
+            ((asyncMemFreeTail + asyncMemReqLength - asyncMemFreeHead) %
+                asyncMemReqLength);
+        DPRINTF(CacheAM, "used_entrys = %d\n", used_entrys);
+        if (spmstats.maxUsedEntry.total() <  used_entrys) {
+            spmstats.maxUsedEntry = used_entrys;
+        }
     } else {
         stateMachine.state = READY_TO_SERVE;
         stateMachine.val = 0;
@@ -1182,40 +1284,36 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
         case ALLOC_REQ_ENTRY: {
             switch(spmFsmEvent) {
                 case RECV_SPM_READ_RESP: {
-                    uint16_t spm_addr_pkt_id = 0;
                     PacketPtr _pkt = (PacketPtr) data;
-                    _pkt->writeData((uint8_t*)&spm_addr_pkt_id);
-                    assert(0 < spm_addr_pkt_id &&
-                           spm_addr_pkt_id <= asyncMemReqLength);
-                    spm_addr_pkt_id = spm_addr_pkt_id - 1;
+                    _pkt->writeData((uint8_t*)&tempFreeListReg);
+                    uintptr_t alignedSpmAddr = stateMachine.val2 -
+                            stateMachine.val2 %
+                                (FREELIST_ENTRY_SIZE * FL_REG_LENGTH);
+                    if (alignedSpmAddr +
+                        (FREELIST_ENTRY_SIZE * FL_REG_LENGTH) >
+                            asyncMemFreeEnd) {
+                        assert((asyncMemFreeEnd - alignedSpmAddr) % 2 == 0);
+                        for (int i = (asyncMemFreeEnd - alignedSpmAddr) / 2;
+                            i < FREELIST_ENTRY_SIZE * FL_REG_LENGTH / 2;
+                            ++i) {
+                            tempFreeListReg[i] = 0;
+                        }
+                    }
+                    if (alignedSpmAddr < asyncMemReqEnd) {
+                        assert((asyncMemReqEnd - alignedSpmAddr) % 2 == 0);
+                        for (int i = (asyncMemReqEnd - alignedSpmAddr) / 2;
+                            i > 0; --i) {
+                            tempFreeListReg[i - 1] = 0;
+                        }
+                    }
 
-                    PacketPtr reqpkt = outstandingAsyncMemPkt;
+                    uint64_t pos =
+                        (stateMachine.val2 - alignedSpmAddr) /
+                        sizeof(uint16_t);
+                    uint64_t spm_addr_pkt_id = tempFreeListReg[pos];
+                    tempFreeListReg[pos] = 0;
 
-                    uint64_t headregval = reqpkt->req->getExtraData();
-                    uint64_t spm_addr = 0;
-                    reqpkt->writeData((uint8_t *)&spm_addr);
-                    PacketPtr spm_pkt = buildSpmAccessPacket(asyncMemReqBase +
-                        spm_addr_pkt_id * MEMREQ_ENTRY_SIZE,
-                        false, MEMREQ_ENTRY_SIZE);
-                    AsyncMemReqEntry entry = stateMachine.entry;
-                    spm_pkt->setData((uint8_t*)&entry);
-                    // write req entry
-                    cpuSidePort.schedInnerTimingReq(spm_pkt,
-                        clockEdge(dataLatency));
-
-                    assert(stateMachine.val2 == 0);
-                    stateMachine.state = FILL_REQ_ENTRY;
-
-                    reqpkt->makeTimingResponse();
-
-                    // return spm_addr_pkt_id + 1 to user
-                    stateMachine.val2 = spm_addr_pkt_id + 1;
-                    reqpkt->setData((uint8_t *)&stateMachine.val2);
-                    stateMachine.val2 = spm_addr_pkt_id;
-
-                    cpuSidePort.schedTimingResp(reqpkt,
-                        clockEdge(logicLatency));
-                    outstandingAsyncMemPkt = nullptr;
+                    fillReqEntryHelper(spm_addr_pkt_id);
 
                     break;
                 }
@@ -1468,6 +1566,13 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
                     uint64_t freeheadAddr = asyncMemReqBase +
                         asyncMemReqLength * MEMREQ_ENTRY_SIZE +
                         asyncMemFreeTail * FREELIST_ENTRY_SIZE;
+                    // maintains coherence between tempFreeListReg and FreeList
+                    if (freeheadAddr - tempFreeListBase <
+                        FL_REG_LENGTH * sizeof(uint16_t)) {
+                        int pos = (freeheadAddr - tempFreeListBase) /
+                            sizeof(uint16_t);
+                        tempFreeListReg[pos] = stateMachine.val2;
+                    }
                     // write freeList
                     PacketPtr spmpkt = buildSpmAccessPacket(
                         freeheadAddr, false, FREELIST_ENTRY_SIZE);
@@ -1627,6 +1732,11 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
                         asyncMemFinishTail = (asyncMemFinishTail + 1) %
                             asyncMemReqLength;
                         ++asyncMemFinishCount;
+
+                        if (spmstats.maxFinishCount.total() <
+                            asyncMemFinishCount) {
+                            spmstats.maxFinishCount = asyncMemFinishCount;
+                        }
                     } else {
                         asyncMemFinishTail = (asyncMemFinishTail + 1) %
                             asyncMemReqLength;
