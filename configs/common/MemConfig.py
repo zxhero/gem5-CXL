@@ -298,12 +298,13 @@ def config_mem(options, system):
                     intlvMatch = 1)
             system.mem_ctrl = MemCtrl()
             mc = system.mem_ctrl
-            mc.dram = DDR3_1600_8x8() #DDR4_2400_8x8
+            mc.dram = DDR4_2400_8x8()
             mc.dram.range = r2
             mc.monitor = CommMonitor()
-            system.membus.master = mc3.monitor.cpu_side_port
-            mc.port = mc3.monitor.mem_side_port
+            system.membus.master = mc.monitor.cpu_side_port
+            mc.port = mc.monitor.mem_side_port
         else:
+            intlv_bits = 0
             r = system.mem_ranges[1]
 
         system.dmem_req = DMemLinkRequester(
@@ -321,10 +322,10 @@ def config_mem(options, system):
         system.dmem_req.monitor = CommMonitor()
         xbar.master = system.dmem_req.monitor.cpu_side_port
         system.dmem_req.monitor.mem_side_port = system.dmem_req.cpu_side_ports
-        link_buffer_size_req = 10
-        link_buffer_size_rsp = 10
+        link_buffer_size_req = 75
+        link_buffer_size_rsp = 75
         num_lanes_per_link = 16
-        serial_link_speed = 31
+        serial_link_speed = 16
         total_ctrl_latency = '300ns'
         system.seriallink = SerialLink(ranges=r,
                                         req_size=link_buffer_size_req,
@@ -336,9 +337,9 @@ def config_mem(options, system):
         system.seriallink.mem_side_port = system.dmem_res.cpu_side_ports
         # system.dmem_req.mem_side_ports = system.dmem_res.cpu_side_ports
         # Create the DRAM interface
-        intf = ObjectList.mem_list.get("DDR3_1600_8x8")
-        dram_intf = create_mem_intf(intf, r, 0, 1,
-                            0, intlv_size, opt_xor_low_bit)
+        intf = ObjectList.mem_list.get("DDR4_2400_8x8")
+        dram_intf = create_mem_intf(intf, system.mem_ranges[1], 0, 1,
+                            intlv_bits, intlv_size, opt_xor_low_bit)
 
         # Set the number of ranks based on the command-line
         # options if it was explicitly set
