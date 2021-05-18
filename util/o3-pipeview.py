@@ -164,7 +164,8 @@ def queue_inst(outfile, inst, cycle_time, width, color, timestamps, store_comple
 # Sorts out and prints instructions in print queue
 def print_insts(outfile, cycle_time, width, color, timestamps, store_completions, lower_threshold):
     global insts
-    insts['queue'].sort(compare_by_sn)
+    # insts['queue'].sort(key=compare_by_sn)
+    insts['queue'].sort(key=lambda k : k['sn'])
     while len(insts['queue']) > lower_threshold:
         print_item=insts['queue'].pop(0)
         # As the instructions are processed out of order the main loop starts
@@ -237,7 +238,7 @@ def print_inst(outfile, inst, cycle_time, width, color, timestamps, store_comple
     if ((last_event_time - inst['fetch']) < time_width):
         num_lines = 1 # compact form
     else:
-        num_lines = ((last_event_time - base_tick) / time_width) + 1
+        num_lines = int((last_event_time - base_tick) // time_width) + 1
 
     curr_color = termcap.Normal
 
@@ -267,7 +268,8 @@ def print_inst(outfile, inst, cycle_time, width, color, timestamps, store_comple
             if (stages[event[2]]['name'] == 'dispatch' and
                 inst['dispatch'] == inst['issue']):
                 continue
-            outfile.write(curr_color + dot * ((event[0] / cycle_time) - pos))
+            outfile.write(curr_color + dot *
+                int((event[0] // cycle_time) - pos))
             outfile.write(stages[event[2]]['color'] +
                           stages[event[2]]['shorthand'])
 
@@ -277,7 +279,7 @@ def print_inst(outfile, inst, cycle_time, width, color, timestamps, store_comple
                 curr_color = termcap.Normal
 
             pos = (event[0] / cycle_time) + 1
-        outfile.write(curr_color + dot * (width - pos) + termcap.Normal +
+        outfile.write(curr_color + dot * int(width - pos) + termcap.Normal +
                       ']-(' + str(base_tick + i * time_width).rjust(15) + ') ')
         if i == 0:
             outfile.write('%s.%s %s [%s]' % (
@@ -358,14 +360,14 @@ def main():
         parser.error('invalid range')
         sys.exit(1)
     # Process trace
-    print 'Processing trace... ',
+    print('Processing trace... ')
     with open(args[0], 'r') as trace:
         with open(options.outfile, 'w') as out:
             process_trace(trace, out, options.cycle_time, options.width,
                           options.color, options.timestamps,
                           options.only_committed, options.store_completions,
                           *(tick_range + inst_range))
-    print 'done!'
+    print ('done!')
 
 
 if __name__ == '__main__':

@@ -43,6 +43,7 @@ Source('write_queue_entry.cc')
 
 DebugFlag('Cache')
 DebugFlag('CacheAM')
+DebugFlag('CacheAMReq')
 DebugFlag('CacheComp')
 DebugFlag('CachePort')
 DebugFlag('CacheBank')

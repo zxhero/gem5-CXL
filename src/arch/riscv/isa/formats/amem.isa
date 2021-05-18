@@ -267,6 +267,58 @@ def template MACFGWrExecute {{
     }
 }};
 
+def template FlushConstructor {{
+    %(class_name)s::%(class_name)s(ExtMachInst machInst):
+        %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
+    {
+        %(constructor)s;
+
+        // overwrite default flags
+        flags[IsMemRef] = true;
+        flags[IsLoad] = false;
+        flags[IsStore] = true;
+        flags[IsAtomic] = true;
+    }
+}};
+
+def template FlushExecute {{
+    Fault
+    %(class_name)s::execute(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+    Fault
+    %(class_name)s::initiateAcc(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        Fault fault = NoFault;
+        Addr EA;
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        if (fault == NoFault) {
+            %(code)s;
+        }
+
+        // EA = Rs1 + sext<12>(IMM12);
+        if (fault == NoFault) {
+            Addr op_size = xc->tcBase()->getSystemPtr()->cacheLineSize();
+            EA &= ~(op_size - 1);
+            fault = xc->writeMem(NULL, op_size, EA,
+                Request::CLEAN | Request::INVALIDATE | Request::DST_POC,
+                NULL);
+        }
+
+
+        return fault;
+    }
+    Fault %(class_name)s::completeAcc(PacketPtr, ExecContext *,
+                      Trace::InstRecord *) const {
+        return NoFault;
+    }
+}};
 
 def template ALoadStoreDeclare {{
     /**
@@ -480,4 +532,12 @@ def format MACFGWrOp(code, *opt_flags) {{
     decoder_output = MACFGWrConstructor.subst(iop)
     decode_block = BasicDecode.subst(iop)
     exec_output = MACFGWrExecute.subst(iop)
+}};
+
+def format FlushOp(code, *opt_flags) {{
+    iop = InstObjParams(name, Name, 'Store', {"code": code}, opt_flags)
+    header_output = ALoadStoreDeclare.subst(iop)
+    decoder_output = FlushConstructor.subst(iop)
+    decode_block = BasicDecode.subst(iop)
+    exec_output = FlushExecute.subst(iop)
 }};

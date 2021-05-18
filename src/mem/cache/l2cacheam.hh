@@ -57,6 +57,8 @@
 #include "mem/request.hh"
 #include "mem/simple_mem.hh"
 
+#define FL_REG_LENGTH 8
+
 class CacheBlk;
 struct L2CacheAMParams;
 class MSHR;
@@ -93,6 +95,7 @@ class L2CacheAM : public Cache
         { }
     };
 
+    Cycles logicLatency;
     unsigned spmWays;
     unsigned numSets;
     unsigned asyncmemOutstanding;
@@ -126,7 +129,28 @@ class L2CacheAM : public Cache
         Stats::Formula bwWrite;
         /** Total bandwidth from this memory */
         Stats::Formula bwTotal;
+
+        /** Async Mem Request */
+        Stats::Scalar numRequest;
+        /** number of ALoad request */
+        Stats::Scalar numALoad;
+        /** number of AStore request */
+        Stats::Scalar numAStore;
+        /** number of TestFin request */
+        Stats::Scalar numTestFin;
+        /** number of Getfin request */
+        Stats::Scalar numGetFin;
+        /** max number of pending AM request */
+        Stats::Scalar maxPendingReq;
+        /** max number of outstanding AM request */
+        Stats::Scalar maxOutstandingReq;
+        /** max number of used entry */
+        Stats::Scalar maxFinishCount;
+        /** max number of used entry */
+        Stats::Scalar maxUsedEntry;
     } spmstats;
+
+
 
     std::list<LockedAddr> spmLockedAddrList;
     void spmTrackLoadLocked(PacketPtr pkt);
@@ -216,6 +240,7 @@ class L2CacheAM : public Cache
     std::list<PacketPtr> pendingAsyncMemPkts;
     EventFunctionWrapper retryProcessAMRespEvent;
     std::list<PacketPtr> pendingAsyncMemRespPkts;
+    EventFunctionWrapper getFinNextEvent;
     enum SpmState {
         READY_TO_SERVE,
         BUILD_REQ_QUEUE,
@@ -271,6 +296,7 @@ class L2CacheAM : public Cache
         ASTORE_REQ,
         TESTFIN_REQ,
         GETFIN_REQ,
+        GETFIN_NEXT,
         SPM_FSM_EVENT_COUNT
     };
     const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
@@ -283,7 +309,8 @@ class L2CacheAM : public Cache
         "ALOAD_REQ",
         "ASTORE_REQ",
         "TESTFIN_REQ",
-        "GETFIN_REQ"
+        "GETFIN_REQ",
+        "GETFIN_NEXT"
     };
 
     struct AsyncMemReqEntry {
@@ -356,12 +383,22 @@ class L2CacheAM : public Cache
     uint64_t asyncMemReqBase;
     int64_t asyncMemFinishHead, asyncMemFinishTail;
     int64_t asyncMemFinishCount;
+    int64_t asyncMemOutstandingCount;
     int64_t asyncMemFreeHead, asyncMemFreeTail;
+    uintptr_t asyncMemReqEnd, asyncMemFreeEnd;
+    uintptr_t asyncMemFinEnd;
+    uintptr_t tempFreeListBase;
+    uint16_t tempFreeListReg[FL_REG_LENGTH];
+    uintptr_t tempFinListBase;
+    uint16_t tempFinListReg[FL_REG_LENGTH];
     // std::vector<AsyncMemReqEntry> asyncMemReqs;
     std::vector<uint64_t> asyncMemConfigRegs;
     int allocAsyncMemReq(uint64_t spmAddr, Addr memAddr);
     bool checkAsyncMemReq(uint64_t handle);
     void allocReqEntryHelper(AsyncMemReqEntryState state);
+    void fillReqEntryHelper(uint64_t spm_addr_pkt_id);
+    void getFinHelper();
+    void getFinNext();
 
   protected:
     void recvTimingResp(PacketPtr pkt) override;

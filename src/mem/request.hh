@@ -926,7 +926,7 @@ class Request
     bool isAsyncMemAstore() const { return _flags.isSet(ASYNCMEM_ASTORE); }
     bool isAsyncTestFin() const { return _flags.isSet(ASYNCMEM_TESTFIN); }
     bool isAsyncCfgReg() const { return _flags.isSet(ASYNCMEM_CFGREG); }
-    bool isAyncMem() const {
+    bool isAsyncMem() const {
         return isAsyncMemAload() || isAsyncMemAstore() ||
                isAsyncTestFin() || isAsyncCfgReg();
     }

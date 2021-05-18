@@ -2412,6 +2412,11 @@ BaseCache::CpuSidePort::tryTiming(PacketPtr pkt)
 
     unsigned bank_id = cache->getBankId(pkt->getAddr());
     bool bank_busy = cache->enableBankModel && cache->bank[bank_id]->isBusy();
+    if (pkt->req->isAsyncMem()) {
+        // don't need to check asyncMem pkts
+        // because it is just a command rather than a real access request
+        bank_busy = false;
+    }
 
     if (cache->system->bypassCaches() || pkt->isExpressSnoop()) {
         // always let express snoop packets through even if blocked

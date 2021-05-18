@@ -178,6 +178,7 @@ class L2CacheAM(Cache):
     # private address for SPM
     spm_base_addr = Param.Addr(0x1000000000000000, "private SPM address base")
     spm_init_capacity = Param.Unsigned(2, "number of ways allocated to SPM")
+    logic_latency = Param.Cycles(1, "logic latency")
     latency = Param.Latency('30ns', "Request to response latency")
     latency_var = Param.Latency('0ns', "Request to response latency variance")
     # The memory bandwidth limit default is set to 12.8GB/s which is
