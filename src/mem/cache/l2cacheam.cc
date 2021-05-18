@@ -91,6 +91,7 @@ L2CacheAM::L2CacheAM(const L2CacheAMParams *p)
       pendingAsyncMemPkts(),
       retryProcessAMRespEvent([this] { retryProcessAMResp(); }, name()),
       pendingAsyncMemRespPkts(),
+      getFinNextEvent([this] { getFinNext(); }, name()),
       outstandingAsyncMemPkt(nullptr),
       asyncMemReqLength(32),
       // asyncMemReqs(asyncMemReqLength),
@@ -772,7 +773,7 @@ void L2CacheAM::recvTimingReq(PacketPtr pkt)
         }
         pkt->makeTimingResponse();
         asyncMemConfigRegs[regid] = val;
-        cpuSidePort.schedTimingResp(pkt, clockEdge(dataLatency));
+        cpuSidePort.schedTimingResp(pkt, clockEdge(logicLatency));
         DPRINTF(CacheAM,
                 "%s L2CacheAM: cfgreg(regid=%ld,val=%ld)\n",
                 __func__, regid, val);
@@ -956,6 +957,7 @@ void L2CacheAM::rebuildAsyncMemReqFreeList()
         cpuSidePort.schedInnerTimingReq(_pkt, clockEdge(dataLatency));
     } else {
         memset(tempFreeListReg, 0, sizeof(tempFreeListReg));
+        tempFreeListBase = 0;
         asyncMemFreeEnd = asyncMemReqEnd +
             asyncMemReqLength * FREELIST_ENTRY_SIZE;
         stateMachine.state = BUILD_FIN_LIST;
@@ -982,6 +984,10 @@ void L2CacheAM::rebuildAsyncMemReqFinList()
         _pkt->setData(tmpBuf);
         cpuSidePort.schedInnerTimingReq(_pkt, clockEdge(dataLatency));
     } else {
+        memset(tempFinListReg, 0, sizeof(tempFinListReg));
+        tempFinListBase = 0;
+        asyncMemFinEnd = asyncMemFreeEnd +
+            asyncMemReqLength * FREELIST_ENTRY_SIZE;
         asyncMemOutstandingCount = 0;
         stateMachine.state = READY_TO_SERVE;
         stateMachine.val = 0;
@@ -990,7 +996,7 @@ void L2CacheAM::rebuildAsyncMemReqFinList()
         if (outstandingAsyncMemPkt) {
             outstandingAsyncMemPkt->makeTimingResponse();
             cpuSidePort.schedTimingResp(outstandingAsyncMemPkt,
-                clockEdge(dataLatency));
+                clockEdge(logicLatency));
             outstandingAsyncMemPkt = nullptr;
         }
     }
@@ -1140,6 +1146,65 @@ void L2CacheAM::allocReqEntryHelper(AsyncMemReqEntryState state)
     }
 }
 
+void L2CacheAM::getFinNext()
+{
+    spmFsmProcess(GETFIN_NEXT, nullptr);
+}
+
+void L2CacheAM::getFinHelper()
+{
+    uint64_t freeheadAddr = asyncMemReqBase +
+        asyncMemReqLength *
+            (MEMREQ_ENTRY_SIZE + FREELIST_ENTRY_SIZE) +
+        asyncMemFinishHead * FREELIST_ENTRY_SIZE;
+
+    if (freeheadAddr - tempFinListBase <
+            (FREELIST_ENTRY_SIZE * FL_REG_LENGTH) &&
+        freeheadAddr >= tempFinListBase) {
+        uint64_t pos = (freeheadAddr %
+            (FL_REG_LENGTH * sizeof(uint16_t))) / sizeof(uint16_t);
+        uint64_t spm_addr_pkt_id = tempFinListReg[pos];
+
+        if (spm_addr_pkt_id == 0) {
+            asyncMemFinishHead = (asyncMemFinishHead + 1) %
+                asyncMemReqLength;
+            // read fin list entry
+            schedule(getFinNextEvent, clockEdge(logicLatency));
+            stateMachine.state = EXEC_GETFIN;
+        } else {
+            PacketPtr reqpkt = (PacketPtr) outstandingAsyncMemPkt;
+            reqpkt->makeTimingResponse();
+            uint64_t resp_id = spm_addr_pkt_id;
+            reqpkt->setData((uint8_t *)&resp_id);
+            cpuSidePort.schedTimingResp(reqpkt,
+                clockEdge(logicLatency));
+            outstandingAsyncMemPkt = nullptr;
+
+            // read memreq entry
+            PacketPtr spm_pkt =
+                buildSpmAccessPacket(asyncMemReqBase +
+                spm_addr_pkt_id * MEMREQ_ENTRY_SIZE,
+                true, MEMREQ_ENTRY_SIZE);
+
+            cpuSidePort.schedInnerTimingReq(spm_pkt,
+                clockEdge(dataLatency));
+            stateMachine.state = FIN_GET_FIN;
+            stateMachine.val2 = spm_addr_pkt_id;
+        }
+    } else {
+        uintptr_t alignedSpmAddr = freeheadAddr -
+                freeheadAddr %
+                    (FREELIST_ENTRY_SIZE * FL_REG_LENGTH);
+        tempFinListBase = alignedSpmAddr;
+        PacketPtr spm_pkt =
+            buildSpmAccessPacket(alignedSpmAddr,
+            true, FREELIST_ENTRY_SIZE * FL_REG_LENGTH);
+        cpuSidePort.schedInnerTimingReq(spm_pkt,
+            clockEdge(dataLatency));
+        stateMachine.state = EXEC_GETFIN;
+    }
+}
+
 void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
 {
     // if ((spmFsmEvent == ALOAD_REQ || spmFsmEvent == ASTORE_REQ) &&
@@ -1185,16 +1250,31 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
                     PacketPtr reqpkt = outstandingAsyncMemPkt;
 
                     if (asyncMemFinishCount > 0) {
-                        PacketPtr spm_pkt =
-                            buildSpmAccessPacket(asyncMemReqBase +
-                            asyncMemReqLength *
-                                (MEMREQ_ENTRY_SIZE + FREELIST_ENTRY_SIZE) +
-                            asyncMemFinishHead * FREELIST_ENTRY_SIZE,
-                            true, FREELIST_ENTRY_SIZE);
-                        // read fin list entry
-                        cpuSidePort.schedInnerTimingReq(spm_pkt,
-                            clockEdge(dataLatency));
-                        stateMachine.state = EXEC_GETFIN;
+                        getFinHelper();
+                    // if (freeheadAddr - tempFinListBase <
+                    //         (FREELIST_ENTRY_SIZE * FL_REG_LENGTH) &&
+                    //     freeheadAddr >= tempFreeListBase) {
+                    //     tempFinListReg[pos] = 0;
+                    //     getFinHelper(spm_addr_pkt_id);
+                    // } else {
+                    //     uintptr_t alignedSpmAddr = freeheadAddr -
+                    //             freeheadAddr %
+                    //                 (FREELIST_ENTRY_SIZE * FL_REG_LENGTH);
+                    //     tempFinListBase = alignedSpmAddr;
+                    //     // PacketPtr spm_pkt =
+                    //     //     buildSpmAccessPacket(asyncMemReqBase +
+                    //     //     asyncMemReqLength *
+                    //     //     (MEMREQ_ENTRY_SIZE + FREELIST_ENTRY_SIZE) +
+                    //     //     asyncMemFinishHead * FREELIST_ENTRY_SIZE,
+                    //     //     true, FREELIST_ENTRY_SIZE);
+                    //     PacketPtr spm_pkt =
+                    //         buildSpmAccessPacket(alignedSpmAddr,
+                    //         true, FREELIST_ENTRY_SIZE * FL_REG_LENGTH);
+                    //     // read fin list entry
+                    //     cpuSidePort.schedInnerTimingReq(spm_pkt,
+                    //         clockEdge(dataLatency));
+                    //     stateMachine.state = EXEC_GETFIN;
+                    // }
                     } else {
                         uint64_t getfin_empty_value = 0;
                         reqpkt->makeTimingResponse();
@@ -1454,12 +1534,21 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
                             __func__, stateMachine.val2, req_result);
 
                     if (req_result) {
-                        // TODO: finList not support
-                        PacketPtr spm_pkt =
-                            buildSpmAccessPacket(asyncMemReqBase +
+                        uint64_t freeheadAddr = asyncMemReqBase +
                             asyncMemReqLength *
                                 (MEMREQ_ENTRY_SIZE + FREELIST_ENTRY_SIZE) +
-                            finListPos * FREELIST_ENTRY_SIZE,
+                            asyncMemFinishHead * FREELIST_ENTRY_SIZE;
+
+                        if (freeheadAddr - tempFinListBase <
+                                (FREELIST_ENTRY_SIZE * FL_REG_LENGTH) &&
+                            freeheadAddr >= tempFinListBase) {
+                            uint64_t pos = (freeheadAddr %
+                                (FL_REG_LENGTH *
+                                    sizeof(uint16_t))) / sizeof(uint16_t);
+                            tempFinListReg[pos] = 0;
+                        }
+                        PacketPtr spm_pkt =
+                            buildSpmAccessPacket(freeheadAddr,
                             false, FREELIST_ENTRY_SIZE);
                         uint16_t empty_id = 0;
                         spm_pkt->setData((uint8_t*)&empty_id);
@@ -1487,44 +1576,19 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
         case EXEC_GETFIN: {
             switch(spmFsmEvent) {
                 case RECV_SPM_READ_RESP: {
-                    int16_t spm_addr_pkt_id = 0;
+                    // int16_t spm_addr_pkt_id = 0;
+                    // PacketPtr spmpkt = (PacketPtr) data;
+                    // spmpkt->writeData((uint8_t*)&spm_addr_pkt_id);
                     PacketPtr spmpkt = (PacketPtr) data;
-                    spmpkt->writeData((uint8_t*)&spm_addr_pkt_id);
+                    spmpkt->writeData((uint8_t*)tempFinListReg);
                     delete spmpkt;
 
-                    if (spm_addr_pkt_id == 0) {
-                        asyncMemFinishHead = (asyncMemFinishHead + 1) %
-                            asyncMemReqLength;
-                        PacketPtr spm_pkt =
-                            buildSpmAccessPacket(asyncMemReqBase +
-                            asyncMemReqLength *
-                                (MEMREQ_ENTRY_SIZE + FREELIST_ENTRY_SIZE) +
-                            asyncMemFinishHead * FREELIST_ENTRY_SIZE,
-                            true, FREELIST_ENTRY_SIZE);
-                        // read fin list entry
-                        cpuSidePort.schedInnerTimingReq(spm_pkt,
-                            clockEdge(dataLatency));
-                    } else {
-                        PacketPtr reqpkt = (PacketPtr) outstandingAsyncMemPkt;
-                        reqpkt->makeTimingResponse();
-                        uint64_t resp_id = spm_addr_pkt_id;
-                        reqpkt->setData((uint8_t *)&resp_id);
-                        cpuSidePort.schedTimingResp(reqpkt,
-                            clockEdge(dataLatency));
-                        outstandingAsyncMemPkt = nullptr;
+                    getFinHelper();
 
-                        // read memreq entry
-                        PacketPtr spm_pkt =
-                            buildSpmAccessPacket(asyncMemReqBase +
-                            spm_addr_pkt_id * MEMREQ_ENTRY_SIZE,
-                            true, MEMREQ_ENTRY_SIZE);
-
-                        cpuSidePort.schedInnerTimingReq(spm_pkt,
-                            clockEdge(dataLatency));
-                        stateMachine.state = FIN_GET_FIN;
-                        stateMachine.val2 = spm_addr_pkt_id;
-                    }
-
+                    break;
+                }
+                case GETFIN_NEXT: {
+                    getFinHelper();
                     break;
                 }
                 default:
@@ -1598,12 +1662,22 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
                     spmpkt->writeData((uint8_t*)&entry);
                     delete spmpkt;
 
-                    stateMachine.entry = entry;
-                    PacketPtr spm_pkt =
-                        buildSpmAccessPacket(asyncMemReqBase +
+                    uint64_t finheadAddr = asyncMemReqBase +
                         asyncMemReqLength *
                             (MEMREQ_ENTRY_SIZE + FREELIST_ENTRY_SIZE) +
-                        asyncMemFinishHead * FREELIST_ENTRY_SIZE,
+                        asyncMemFinishHead * FREELIST_ENTRY_SIZE;
+
+                    if (finheadAddr - tempFinListBase <
+                            (FREELIST_ENTRY_SIZE * FL_REG_LENGTH) &&
+                        finheadAddr >= tempFinListBase) {
+                        uint64_t pos = (finheadAddr %
+                            (FL_REG_LENGTH * sizeof(uint16_t))) /
+                                sizeof(uint16_t);
+                        tempFinListReg[pos] = 0;
+                    }
+                    stateMachine.entry = entry;
+                    PacketPtr spm_pkt =
+                        buildSpmAccessPacket(finheadAddr,
                         false, FREELIST_ENTRY_SIZE);
                     uint16_t empty_id = 0;
                     spm_pkt->setData((uint8_t*)&empty_id);
@@ -1715,14 +1789,24 @@ void L2CacheAM::spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data)
                             AMRE_FINISH, spmAddr, memAddr);
                         stateMachine.entry.finListPos = finListPos;
 
-                        PacketPtr spm_pkt =
-                            buildSpmAccessPacket(asyncMemReqBase +
+                        uint64_t fintailAddr = asyncMemReqBase +
                             asyncMemReqLength *
                                 (MEMREQ_ENTRY_SIZE + FREELIST_ENTRY_SIZE) +
-                            asyncMemFinishTail * FREELIST_ENTRY_SIZE,
+                            asyncMemFinishTail * FREELIST_ENTRY_SIZE;
+                        PacketPtr spm_pkt =
+                            buildSpmAccessPacket(fintailAddr,
                             false, FREELIST_ENTRY_SIZE);
+
                         // write index+1 into finish list
                         uint16_t spm_addr_pkt_id = stateMachine.val2 + 1;
+                        if (fintailAddr - tempFinListBase <
+                                (FREELIST_ENTRY_SIZE * FL_REG_LENGTH) &&
+                            fintailAddr >= tempFinListBase) {
+                            uint64_t pos = (fintailAddr %
+                                (FL_REG_LENGTH * sizeof(uint16_t))) /
+                                    sizeof(uint16_t);
+                            tempFinListReg[pos] = spm_addr_pkt_id;
+                        }
                         spm_pkt->setData((uint8_t*)&spm_addr_pkt_id);
                         // write req entry
                         cpuSidePort.schedInnerTimingReq(spm_pkt,
