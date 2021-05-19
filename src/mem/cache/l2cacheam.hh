@@ -57,7 +57,7 @@
 #include "mem/request.hh"
 #include "mem/simple_mem.hh"
 
-#define FL_REG_LENGTH 8
+#define FL_REG_LENGTH 32
 
 class CacheBlk;
 struct L2CacheAMParams;
@@ -71,6 +71,82 @@ enum MemAccConfigRegs
     MEMACC_CFG_GETFIN =  0x3,
 
     MEMACC_CFG_COUNT,
+};
+
+enum SpmState {
+    READY_TO_SERVE,
+    BUILD_REQ_QUEUE,
+    BUILD_FREE_LIST,
+    BUILD_FIN_LIST,
+    ALLOC_REQ_ENTRY,
+    FILL_REQ_ENTRY,
+    WRITEBACK_FREELIST,
+    WRITEBACK_FINLIST,
+    EXEC_ASTORE,
+    EXEC_ALOAD,
+    EXEC_TESTFIN,
+    EXEC_GETFIN,
+    FIN_TEST_FIN,
+    // FIN_GET_FIN,
+    WRITE_FREE_LIST,
+    GET_REQ_ENTRY,
+    FIN_REQ_ENTRY,
+    ALLOC_FIN_ENTRY,
+    FILL_FIN_ENTRY,
+    CLEAR_FIN_LIST,
+    FIN_ALOAD,
+    SPM_STATE_COUNT
+};
+static const char* spmStateStr[SPM_STATE_COUNT] = {
+    "READY_TO_SERVE",
+    "BUILD_REQ_QUEUE",
+    "BUILD_FREE_LIST",
+    "BUILD_FIN_LIST",
+    "ALLOC_REQ_ENTRY",
+    "FILL_REQ_ENTRY",
+    "WRITEBACK_FREELIST",
+    "WRITEBACK_FINLIST",
+    "EXEC_ASTORE",
+    "EXEC_ALOAD",
+    "EXEC_TESTFIN",
+    "EXEC_GETFIN",
+    "FIN_TEST_FIN",
+    // "FIN_GET_FIN",
+    "WRITE_FREE_LIST",
+    "GET_REQ_ENTRY",
+    "FIN_REQ_ENTRY",
+    "ALLOC_FIN_ENTRY",
+    "FILL_FIN_ENTRY",
+    "CLEAR_FIN_LIST",
+    "FIN_ALOAD"
+};
+
+enum SpmFSMEvent {
+    RECV_SPM_READ_RESP,
+    RECV_SPM_WRITE_RESP,
+    RECV_MEM_READ_RESP,
+    RECV_MEM_WRITE_RESP,
+    RECONF_QUEUE_BASE,
+    RECONF_QUEUE_LENGTH,
+    ALOAD_REQ,
+    ASTORE_REQ,
+    TESTFIN_REQ,
+    GETFIN_REQ,
+    RETRY_EVENT,
+    SPM_FSM_EVENT_COUNT
+};
+static const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
+    "RECV_SPM_READ_RESP",
+    "RECV_SPM_WRITE_RESP",
+    "RECV_MEM_READ_RESP",
+    "RECV_MEM_WRITE_RESP",
+    "RECONF_QUEUE_BASE",
+    "RECONF_QUEUE_LENGTH",
+    "ALOAD_REQ",
+    "ASTORE_REQ",
+    "TESTFIN_REQ",
+    "GETFIN_REQ",
+    "RETRY_EVENT"
 };
 
 /**
@@ -130,6 +206,10 @@ class L2CacheAM : public Cache
         /** Total bandwidth from this memory */
         Stats::Formula bwTotal;
 
+        /** Number of other requests */
+        Stats::Vector stateTicks;
+        /** Total bandwidth from this memory */
+        Stats::Formula afterMemResp;
         /** Async Mem Request */
         Stats::Scalar numRequest;
         /** number of ALoad request */
@@ -236,82 +316,10 @@ class L2CacheAM : public Cache
      */
     // std::unique_ptr<Packet> pendingDelete;
 
-    EventFunctionWrapper retryProcessAMReqEvent;
+    EventFunctionWrapper retryProcessAMReqRespEvent;
     std::list<PacketPtr> pendingAsyncMemPkts;
-    EventFunctionWrapper retryProcessAMRespEvent;
     std::list<PacketPtr> pendingAsyncMemRespPkts;
-    EventFunctionWrapper getFinNextEvent;
-    enum SpmState {
-        READY_TO_SERVE,
-        BUILD_REQ_QUEUE,
-        BUILD_FREE_LIST,
-        BUILD_FIN_LIST,
-        ALLOC_REQ_ENTRY,
-        FILL_REQ_ENTRY,
-        EXEC_ASTORE,
-        EXEC_ALOAD,
-        EXEC_TESTFIN,
-        EXEC_GETFIN,
-        FIN_TEST_FIN,
-        FIN_GET_FIN,
-        WRITE_FREE_LIST,
-        GET_REQ_ENTRY,
-        FIN_REQ_ENTRY,
-        ALLOC_FIN_ENTRY,
-        FILL_FIN_ENTRY,
-        CLEAR_FIN_LIST,
-        FIN_ALOAD,
-        SPM_STATE_COUNT
-    };
-    const char* spmStateStr[SPM_STATE_COUNT] = {
-        "READY_TO_SERVE",
-        "BUILD_REQ_QUEUE",
-        "BUILD_FREE_LIST",
-        "BUILD_FIN_LIST",
-        "ALLOC_REQ_ENTRY",
-        "FILL_REQ_ENTRY",
-        "EXEC_ASTORE",
-        "EXEC_ALOAD",
-        "EXEC_TESTFIN",
-        "EXEC_GETFIN",
-        "FIN_TEST_FIN",
-        "FIN_GET_FIN",
-        "WRITE_FREE_LIST",
-        "GET_REQ_ENTRY",
-        "FIN_REQ_ENTRY",
-        "ALLOC_FIN_ENTRY",
-        "FILL_FIN_ENTRY",
-        "CLEAR_FIN_LIST",
-        "FIN_ALOAD"
-    };
-
-    enum SpmFSMEvent {
-        RECV_SPM_READ_RESP,
-        RECV_SPM_WRITE_RESP,
-        RECV_MEM_READ_RESP,
-        RECV_MEM_WRITE_RESP,
-        RECONF_QUEUE_BASE,
-        RECONF_QUEUE_LENGTH,
-        ALOAD_REQ,
-        ASTORE_REQ,
-        TESTFIN_REQ,
-        GETFIN_REQ,
-        GETFIN_NEXT,
-        SPM_FSM_EVENT_COUNT
-    };
-    const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
-        "RECV_SPM_READ_RESP",
-        "RECV_SPM_WRITE_RESP",
-        "RECV_MEM_READ_RESP",
-        "RECV_MEM_WRITE_RESP",
-        "RECONF_QUEUE_BASE",
-        "RECONF_QUEUE_LENGTH",
-        "ALOAD_REQ",
-        "ASTORE_REQ",
-        "TESTFIN_REQ",
-        "GETFIN_REQ",
-        "GETFIN_NEXT"
-    };
+    EventFunctionWrapper retryNextEvent;
 
     struct AsyncMemReqEntry {
         uint64_t entry;
@@ -333,8 +341,10 @@ class L2CacheAM : public Cache
     void rebuildAsyncMemReqQueue();
     void rebuildAsyncMemReqFreeList();
     void rebuildAsyncMemReqFinList();
-    void retryProcessAMReq();
-    void retryProcessAMResp();
+    void retryProcessAMReqAndResp();
+    bool retryProcessAMReq();
+    bool retryProcessAMResp();
+    int retryProcessRoundRobin;
 
     enum AsyncMemReqEntryState {
         AMRE_IDLE,
@@ -378,6 +388,7 @@ class L2CacheAM : public Cache
             finished(false), spm_addr(0),
             mem_addr(0) {}
     };*/
+    Tick lastSpmFsmTick;
     PacketPtr outstandingAsyncMemPkt;
     unsigned int asyncMemReqLength;
     uint64_t asyncMemReqBase;
@@ -397,8 +408,13 @@ class L2CacheAM : public Cache
     bool checkAsyncMemReq(uint64_t handle);
     void allocReqEntryHelper(AsyncMemReqEntryState state);
     void fillReqEntryHelper(uint64_t spm_addr_pkt_id);
+    void allocFinEntryHelper(uint64_t fin_entry);
     void getFinHelper();
-    void getFinNext();
+    void retryNext();
+    // return true if hit temp reg(free list buffer)
+    bool accessFreeList(int pos, bool isRead, uint64_t &spm_addr_pkt_id);
+    // return true if hit temp reg(free list buffer)
+    bool accessFinList(int pos, bool isRead, uint64_t &spm_addr_pkt_id);
 
   protected:
     void recvTimingResp(PacketPtr pkt) override;
