@@ -5,6 +5,7 @@
 #include "debug/DMemLinkRequester.hh"
 #include "debug/DMemLinkResponder.hh"
 #include "debug/DMemLinkRouter.hh"
+#include "debug/AddrRanges.hh"
 
 DMemLinkRequester::DMemLinkRequester(const DMemLinkRequesterParams *p)
     : NoncoherentXBar(p), RxEvent([this]{ processRxEvent(); }, std::string("dmemReq_rx")),
@@ -281,6 +282,147 @@ void DMemLinkRequester::recvReqRetry(PortID mem_side_port_id){
     return ;
 }
 
+/** Function called by the port when the crossbar is receiving a range change.*/
+void
+DMemLinkRequester::recvRangeChange(PortID mem_side_port_id)
+{
+    DPRINTF(AddrRanges, "Received range change from cpu_side_ports %s\n",
+            memSidePorts[mem_side_port_id]->getPeer());
+
+    // remember that we got a range from this memory-side port and thus the
+    // connected CPU-side-port module
+    gotAddrRanges[mem_side_port_id] = true;
+
+    // update the global flag
+    if (!gotAllAddrRanges) {
+        // take a logical AND of all the ports and see if we got
+        // ranges from everyone
+        gotAllAddrRanges = true;
+        std::vector<bool>::const_iterator r = gotAddrRanges.begin();
+        while (gotAllAddrRanges &&  r != gotAddrRanges.end()) {
+            gotAllAddrRanges &= *r++;
+        }
+        if (gotAllAddrRanges)
+            DPRINTF(AddrRanges, "Got address ranges from all responders\n");
+    }
+
+    // note that we could get the range from the default port at any
+    // point in time, and we cannot assume that the default range is
+    // set before the other ones are, so we do additional checks once
+    // all ranges are provided
+    if (mem_side_port_id == defaultPortID) {
+        // only update if we are indeed checking ranges for the
+        // default port since the port might not have a valid range
+        // otherwise
+        if (useDefaultRange) {
+            AddrRangeList ranges = memSidePorts[mem_side_port_id]->
+                                   getAddrRanges();
+
+            if (ranges.size() != 1)
+                fatal("Crossbar %s may only have a single default range",
+                      name());
+
+            defaultRange = ranges.front();
+        }
+    } else {
+        // the ports are allowed to update their address ranges
+        // dynamically, so remove any existing entries
+        if (gotAddrRanges[mem_side_port_id]) {
+            for (auto p = portMap.begin(); p != portMap.end(); ) {
+                if (p->second == mem_side_port_id)
+                    // erasing invalidates the iterator, so advance it
+                    // before the deletion takes place
+                    portMap.erase(p++);
+                else
+                    p++;
+            }
+        }
+
+        AddrRangeList ranges = memSidePorts[mem_side_port_id]->
+                               getAddrRanges();
+
+        for (const auto& r: ranges) {
+            DPRINTF(AddrRanges, "Adding range %s for id %d\n",
+                    r.to_string(), mem_side_port_id);
+            if (portMap.insert(r, mem_side_port_id) == portMap.end()) {
+                PortID conflict_id = portMap.intersects(r)->second;
+                fatal("%s has two ports responding within range "
+                      "%s:\n\t%s\n\t%s\n",
+                      name(),
+                      r.to_string(),
+                      memSidePorts[mem_side_port_id]->getPeer(),
+                      memSidePorts[conflict_id]->getPeer());
+            }
+        }
+    }
+
+    // if we have received ranges from all our neighbouring CPU-side-port
+    // modules, go ahead and tell our connected memory-side-port modules in
+    // turn, this effectively assumes a tree structure of the system
+    if (gotAllAddrRanges) {
+        DPRINTF(AddrRanges, "Aggregating address ranges\n");
+        xbarRanges.clear();
+
+        // start out with the default range
+        if (useDefaultRange) {
+            if (!gotAddrRanges[defaultPortID])
+                fatal("Crossbar %s uses default range, but none provided",
+                      name());
+
+            xbarRanges.push_back(defaultRange);
+            DPRINTF(AddrRanges, "-- Adding default %s\n",
+                    defaultRange.to_string());
+        }
+
+        // merge all interleaved ranges and add any range that is not
+        // a subset of the default range
+        std::vector<AddrRange> intlv_ranges;
+        for (const auto& r: portMap) {
+            // keep the current range if not a subset of the default
+            if (!(useDefaultRange &&
+                  r.first.isSubset(defaultRange))) {
+                xbarRanges.push_back(r.first);
+                DPRINTF(AddrRanges, "-- Adding range %s\n",
+                        r.first.to_string());
+            }
+        }
+
+        // if there is still interleaved ranges waiting to be merged,
+        // go ahead and do it
+        if (!intlv_ranges.empty()) {
+            DPRINTF(AddrRanges, "-- Merging range from %d ranges\n",
+                    intlv_ranges.size());
+            AddrRange merged_range(intlv_ranges);
+            if (!(useDefaultRange && merged_range.isSubset(defaultRange))) {
+                xbarRanges.push_back(merged_range);
+                DPRINTF(AddrRanges, "-- Adding merged range %s\n",
+                        merged_range.to_string());
+            }
+        }
+
+        // also check that no range partially intersects with the
+        // default range, this has to be done after all ranges are set
+        // as there are no guarantees for when the default range is
+        // update with respect to the other ones
+        if (useDefaultRange) {
+            for (const auto& r: xbarRanges) {
+                // see if the new range is partially
+                // overlapping the default range
+                if (r.intersects(defaultRange) &&
+                    !r.isSubset(defaultRange))
+                    fatal("Range %s intersects the "                    \
+                          "default range of %s but is not a "           \
+                          "subset\n", r.to_string(), name());
+            }
+        }
+
+        // tell all our neighbouring memory-side ports that our address
+        // ranges have changed
+        for (const auto& port: cpuSidePorts)
+            port->sendRangeChange();
+    }
+}
+
 DMemLinkResponder::DMemLinkResponder(const DMemLinkResponderParams *p)
     : NoncoherentXBar(p), RxEvent([this]{ processRxEvent(); }, std::string("dmemResp_rx")),
     TxEvent([this]{ processTxEvent(); }, std::string("dmemResp_tx"))
@@ -520,8 +662,8 @@ DMemLinkRouter::DMemLinkRouter(const DMemLinkRouterParams *p)
     : NoncoherentXBar(p), 
     downTransEvent([this]{ downTransLayer(); }, std::string("dmemRouterDown_trans")), 
     downTxEvent([this]{ processDownTxEvent(); }, std::string("dmemRouterDown_tx")),
-    upTransEvent([this]{ downTransLayer(); }, std::string("dmemRouterUp_trans")), 
-    upTxEvent([this]{ processDownTxEvent(); }, std::string("dmemRouterUp_tx"))
+    upTransEvent([this]{ upTransLayer(); }, std::string("dmemRouterUp_trans")), 
+    upTxEvent([this]{ processUpTxEvent(); }, std::string("dmemRouterUp_tx"))
 {
     pktQueueDownTx.resize(p->port_mem_side_ports_connection_count);
     schedule(&downTxEvent, clockEdge(Cycles(1)));
@@ -529,7 +671,7 @@ DMemLinkRouter::DMemLinkRouter(const DMemLinkRouterParams *p)
     pktQueueDownRx.resize(p->port_cpu_side_ports_connection_count);
 
     pktQueueUpTx.resize(p->port_cpu_side_ports_connection_count);
-    schedule(&upTxEvent, clockEdge(Cycles(1)));
+    //schedule(&upTxEvent, clockEdge(Cycles(1)));
     schedule(&upTransEvent, clockEdge(Cycles(1)));
     pktQueueUpRx.resize(p->port_mem_side_ports_connection_count);
 }
@@ -560,7 +702,7 @@ void DMemLinkRouter::downTransLayer(){
         // test if the layer should be considered occupied for the current
         // port
         if (!reqLayers[mem_side_port_id]->tryTiming(NULL)) {
-             DPRINTF(DMemLinkRouter, "processRxEvent: dest %d BUSY\n",
+             DPRINTF(DMemLinkRouter, "downTransLayer: dest %d BUSY\n",
                     mem_side_port_id);
             continue;
         }
@@ -581,7 +723,7 @@ void DMemLinkRouter::downTransLayer(){
         Tick packetFinishTime = clockEdge(Cycles(1));
         int size = (*pktptr)->getSize();
         //combine the command from same transcation and with same DNID into new request
-        for(pktptr ++ ;pktptr != i->end(); ){
+        for(pktptr = i->erase(pktptr);pktptr != i->end(); ){
 
             PacketPtr pkt = *pktptr;
             if(mem_side_port_id == findPort(pkt->getAddrRange()) 
@@ -635,7 +777,7 @@ void DMemLinkRouter::processDownTxEvent(){
         if(i->empty() == false){
             bool success = memSidePorts[mem_side_port_id]->sendTimingReq((i->front()));
             if(success){
-                DPRINTF(DMemLinkRouter, "processInst: send success \n");
+                DPRINTF(DMemLinkRouter, "processDownTxEvent: send success \n");
                 i->erase(i->begin());
             }
         }
@@ -648,25 +790,75 @@ bool DMemLinkRouter::recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id){
     // determine the source port based on the id
     ResponsePort *src_port = cpuSidePorts[cpu_side_port_id];
 
-    DPRINTF(DMemLinkRouter, "recvTimingReq: src %s %s\n",
-            src_port->name(), pkt->cmdString());
+    
 
-    if(pkt->DNID == nid){
+    //TODO: we only support DNID is router node
+    //if(pkt->DNID == nid){
         for (auto pktptr = pkt->instructions.begin(); pktptr != pkt->instructions.end(); pktptr ++){
+            DPRINTF(DMemLinkRouter, "recvTimingReq: src %s %s 0x%x\n",
+                src_port->name(), (*pktptr)->cmdString(), (*pktptr)->getAddr());
 
             pktQueueDownRx[cpu_side_port_id].emplace_back(*pktptr);
         }
         delete pkt;
-    }else{
-        pktQueueDownRx[cpu_side_port_id].emplace_back(pkt);
-    }
+    //}else{
+    //    pktQueueDownRx[cpu_side_port_id].emplace_back(pkt);
+    //}
     
     
     return true;
 }
 
 void DMemLinkRouter::upTransLayer(){
+    schedule(&upTransEvent, clockEdge(Cycles(1)));
+    
+    //Todo: we assume there is one cpu side port for now
+    const PortID cpu_side_port_id = 0;
+    
 
+    for (auto i = pktQueueUpRx.begin(); i != pktQueueUpRx.end(); i++){
+        if(i->empty())
+            continue;
+
+        // test if the layer should be considered occupied for the current
+        // port
+        if (!respLayers[cpu_side_port_id]->tryTiming(NULL)) {
+            DPRINTF(DMemLinkRouter, "upTransLayer: dest 0 BUSY\n");
+            return;
+        }
+
+        PortID mem_side_port_id = i - pktQueueUpRx.begin();
+        auto pktptr = i->begin();
+        // a response sees the response latency
+        Tick xbar_delay = responseLatency * clockPeriod();
+
+        // set the packet header and payload delay
+        calcPacketTiming(*pktptr, xbar_delay);
+
+        // determine how long to be crossbar layer is busy
+        Tick packetFinishTime = clockEdge(Cycles(1)) + (*pktptr)->payloadDelay;
+
+        // send the packet through the destination CPU-side port, and pay for
+        // any outstanding latency
+        Tick latency = (*pktptr)->headerDelay;
+        (*pktptr)->headerDelay = 0;
+        cpuSidePorts[cpu_side_port_id]->schedTimingResp(*pktptr,
+                                    curTick() + latency);
+        i->erase(i->begin());
+        respLayers[cpu_side_port_id]->succeededTiming(packetFinishTime);
+
+        // store size and command as they might be modified when
+        // forwarding the packet
+        unsigned int pkt_size = (*pktptr)->hasData() ? (*pktptr)->getSize() : 0;
+        unsigned int pkt_cmd = (*pktptr)->cmdToIndex();
+
+        // stats updates
+        pktCount[cpu_side_port_id][mem_side_port_id]++;
+        pktSize[cpu_side_port_id][mem_side_port_id] += pkt_size;
+        transDist[pkt_cmd]++;
+
+        return;
+    }
 }
 
 void DMemLinkRouter::processUpTxEvent(){
@@ -674,6 +866,153 @@ void DMemLinkRouter::processUpTxEvent(){
 }
 
 bool DMemLinkRouter::recvTimingResp(PacketPtr pkt, PortID mem_side_port_id){
-    //TODO
+    // determine the source port based on the id
+    RequestPort *src_port = memSidePorts[mem_side_port_id];
+    DPRINTF(DMemLinkRouter, "recvTimingResp: src %s %s\n",
+                    src_port->name(), pkt->cmdString());
+
+    pktQueueUpRx[mem_side_port_id].emplace_back(pkt);
+    
     return true;
+}
+
+/** Function called by the port when the crossbar is receiving a range change.*/
+void
+DMemLinkRouter::recvRangeChange(PortID mem_side_port_id)
+{
+    DPRINTF(AddrRanges, "Received range change from cpu_side_ports %s\n",
+            memSidePorts[mem_side_port_id]->getPeer());
+
+    // remember that we got a range from this memory-side port and thus the
+    // connected CPU-side-port module
+    gotAddrRanges[mem_side_port_id] = true;
+
+    // update the global flag
+    if (!gotAllAddrRanges) {
+        // take a logical AND of all the ports and see if we got
+        // ranges from everyone
+        gotAllAddrRanges = true;
+        std::vector<bool>::const_iterator r = gotAddrRanges.begin();
+        while (gotAllAddrRanges &&  r != gotAddrRanges.end()) {
+            gotAllAddrRanges &= *r++;
+        }
+        if (gotAllAddrRanges)
+            DPRINTF(AddrRanges, "Got address ranges from all responders\n");
+    }
+
+    // note that we could get the range from the default port at any
+    // point in time, and we cannot assume that the default range is
+    // set before the other ones are, so we do additional checks once
+    // all ranges are provided
+    if (mem_side_port_id == defaultPortID) {
+        // only update if we are indeed checking ranges for the
+        // default port since the port might not have a valid range
+        // otherwise
+        if (useDefaultRange) {
+            AddrRangeList ranges = memSidePorts[mem_side_port_id]->
+                                   getAddrRanges();
+
+            if (ranges.size() != 1)
+                fatal("Crossbar %s may only have a single default range",
+                      name());
+
+            defaultRange = ranges.front();
+        }
+    } else {
+        // the ports are allowed to update their address ranges
+        // dynamically, so remove any existing entries
+        if (gotAddrRanges[mem_side_port_id]) {
+            for (auto p = portMap.begin(); p != portMap.end(); ) {
+                if (p->second == mem_side_port_id)
+                    // erasing invalidates the iterator, so advance it
+                    // before the deletion takes place
+                    portMap.erase(p++);
+                else
+                    p++;
+            }
+        }
+
+        AddrRangeList ranges = memSidePorts[mem_side_port_id]->
+                               getAddrRanges();
+
+        for (const auto& r: ranges) {
+            DPRINTF(AddrRanges, "Adding range %s for id %d\n",
+                    r.to_string(), mem_side_port_id);
+            if (portMap.insert(r, mem_side_port_id) == portMap.end()) {
+                PortID conflict_id = portMap.intersects(r)->second;
+                fatal("%s has two ports responding within range "
+                      "%s:\n\t%s\n\t%s\n",
+                      name(),
+                      r.to_string(),
+                      memSidePorts[mem_side_port_id]->getPeer(),
+                      memSidePorts[conflict_id]->getPeer());
+            }
+        }
+    }
+
+    // if we have received ranges from all our neighbouring CPU-side-port
+    // modules, go ahead and tell our connected memory-side-port modules in
+    // turn, this effectively assumes a tree structure of the system
+    if (gotAllAddrRanges) {
+        DPRINTF(AddrRanges, "Aggregating address ranges\n");
+        xbarRanges.clear();
+
+        // start out with the default range
+        if (useDefaultRange) {
+            if (!gotAddrRanges[defaultPortID])
+                fatal("Crossbar %s uses default range, but none provided",
+                      name());
+
+            xbarRanges.push_back(defaultRange);
+            DPRINTF(AddrRanges, "-- Adding default %s\n",
+                    defaultRange.to_string());
+        }
+
+        // merge all interleaved ranges and add any range that is not
+        // a subset of the default range
+        std::vector<AddrRange> intlv_ranges;
+        for (const auto& r: portMap) {
+            // keep the current range if not a subset of the default
+            if (!(useDefaultRange &&
+                  r.first.isSubset(defaultRange))) {
+                xbarRanges.push_back(r.first);
+                DPRINTF(AddrRanges, "-- Adding range %s\n",
+                        r.first.to_string());
+            }
+        }
+
+        // if there is still interleaved ranges waiting to be merged,
+        // go ahead and do it
+        if (!intlv_ranges.empty()) {
+            DPRINTF(AddrRanges, "-- Merging range from %d ranges\n",
+                    intlv_ranges.size());
+            AddrRange merged_range(intlv_ranges);
+            if (!(useDefaultRange && merged_range.isSubset(defaultRange))) {
+                xbarRanges.push_back(merged_range);
+                DPRINTF(AddrRanges, "-- Adding merged range %s\n",
+                        merged_range.to_string());
+            }
+        }
+
+        // also check that no range partially intersects with the
+        // default range, this has to be done after all ranges are set
+        // as there are no guarantees for when the default range is
+        // update with respect to the other ones
+        if (useDefaultRange) {
+            for (const auto& r: xbarRanges) {
+                // see if the new range is partially
+                // overlapping the default range
+                if (r.intersects(defaultRange) &&
+                    !r.isSubset(defaultRange))
+                    fatal("Range %s intersects the "                    \
+                          "default range of %s but is not a "           \
+                          "subset\n", r.to_string(), name());
+            }
+        }
+
+        // tell all our neighbouring memory-side ports that our address
+        // ranges have changed
+        for (const auto& port: cpuSidePorts)
+            port->sendRangeChange();
+    }
 }

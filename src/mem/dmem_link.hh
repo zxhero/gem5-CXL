@@ -27,6 +27,7 @@ protected:
     virtual bool recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id);
     virtual bool recvTimingResp(PacketPtr pkt, PortID mem_side_port_id);
     virtual void recvReqRetry(PortID mem_side_port_id) override;
+    virtual void recvRangeChange(PortID mem_side_port_id) override;
 
 private:
     //recieve from cpu side, send to mem side
@@ -87,6 +88,7 @@ protected:
 
     virtual bool recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id);
     virtual bool recvTimingResp(PacketPtr pkt, PortID mem_side_port_id);
+    virtual void recvRangeChange(PortID mem_side_port_id) override;
 
 private:
     int nid;
