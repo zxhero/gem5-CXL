@@ -52,6 +52,7 @@
 #include "debug/Cache.hh"
 #include "debug/CacheBank.hh"
 #include "debug/CacheComp.hh"
+#include "debug/CachePerf.hh"
 #include "debug/CachePort.hh"
 #include "debug/CacheRepl.hh"
 #include "debug/CacheVerbose.hh"
@@ -269,6 +270,15 @@ BaseCache::inRange(Addr addr) const
 void
 BaseCache::handleTimingReqHit(PacketPtr pkt, CacheBlk *blk, Tick request_time)
 {
+#if TRACING_ON
+    if (DTRACE(CachePerf)) {
+        if (pkt->req->hasPC()) {
+            DPRINTFR(CachePerf, "%s pc %lx addr %lx cache hit\n",
+                    this->name(),
+                    pkt->req->getPC(), pkt->getAddr());
+        }
+    }
+#endif
     if (pkt->needsResponse()) {
         // These delays should have been consumed by now
         assert(pkt->headerDelay == 0);
@@ -298,6 +308,15 @@ void
 BaseCache::handleTimingReqMiss(PacketPtr pkt, MSHR *mshr, CacheBlk *blk,
                                Tick forward_time, Tick request_time)
 {
+#if TRACING_ON
+    if (DTRACE(CachePerf)) {
+        if (pkt->req->hasPC()) {
+            DPRINTFR(CachePerf, "%s pc %lx addr %lx cache miss\n",
+                    this->name(),
+                    pkt->req->getPC(), pkt->getAddr());
+        }
+    }
+#endif
     if (writeAllocator &&
         pkt && pkt->isWrite() && !pkt->req->isUncacheable()) {
         writeAllocator->updateMode(pkt->getAddr(), pkt->getSize(),
