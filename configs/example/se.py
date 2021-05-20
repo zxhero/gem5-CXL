@@ -76,7 +76,8 @@ def get_processes(options):
     errouts = []
     pargs = []
 
-    workloads = options.cmd.split(';')
+    print(options.cmd)
+    workloads = options.cmd.split(',')
     if options.input != "":
         inputs = options.input.split(';')
     if options.output != "":
@@ -84,7 +85,7 @@ def get_processes(options):
     if options.errout != "":
         errouts = options.errout.split(';')
     if options.options != "":
-        pargs = options.options.split(';')
+        pargs = options.options.split(',')
 
     idx = 0
     for wrkld in workloads:
@@ -108,6 +109,7 @@ def get_processes(options):
         if len(errouts) > idx:
             process.errout = errouts[idx]
 
+        print(process.cmd)
         multiprocesses.append(process)
         idx += 1
 
@@ -169,9 +171,11 @@ if options.smt and options.num_cpus > 1:
     fatal("You cannot use SMT with multiple CPUs!")
 
 np = options.num_cpus
+addr1 = AddrRange(options.mem_size)
+addr2 = AddrRange(addr1.end, size = '1GB')
 system = System(cpu = [CPUClass(cpu_id=i) for i in range(np)],
                 mem_mode = test_mem_mode,
-                mem_ranges = [AddrRange(options.mem_size)],
+                mem_ranges = [addr1, addr2],
                 cache_line_size = options.cacheline_size,
                 workload = NULL)
 

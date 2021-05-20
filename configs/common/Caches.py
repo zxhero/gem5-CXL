@@ -77,9 +77,9 @@ class L1_DCache(L1Cache):
 
 class L2Cache(Cache):
     assoc = 8
-    tag_latency = 20
-    data_latency = 20
-    response_latency = 20
+    tag_latency = 5
+    data_latency = 5
+    response_latency = 5
     enable_bank_model = False
     mshrs = 20
     tgts_per_mshr = 12

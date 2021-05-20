@@ -116,7 +116,7 @@ SerialLink::init()
 bool
 SerialLink::SerialLinkResponsePort::respQueueFull() const
 {
-    return outstandingResponses == respQueueLimit;
+    return transmitList.size() == respQueueLimit;
 }
 
 bool
@@ -185,8 +185,8 @@ SerialLink::SerialLinkResponsePort::recvTimingReq(PacketPtr pkt)
             } else {
                 // ok to send the request with space for the response
                 DPRINTF(SerialLink, "Reserving space for response\n");
-                assert(outstandingResponses != respQueueLimit);
-                ++outstandingResponses;
+                //assert(outstandingResponses != respQueueLimit);
+                outstandingResponses += pkt->instructions.size();
 
                 // no need to set retryReq to false as this is already the
                 // case
@@ -329,7 +329,7 @@ SerialLink::SerialLinkResponsePort::trySendTiming()
         DPRINTF(SerialLink, "trySend response successful\n");
 
         assert(outstandingResponses != 0);
-        --outstandingResponses;
+        outstandingResponses -= pkt->instructions.size();
 
         // If there are more packets to send, schedule event to try again.
         if (!transmitList.empty()) {
@@ -378,13 +378,18 @@ SerialLink::SerialLinkResponsePort::recvAtomic(PacketPtr pkt)
 void
 SerialLink::SerialLinkResponsePort::recvFunctional(PacketPtr pkt)
 {
+    DPRINTF(SerialLink, "recvFunctional: %s addr 0x%x, requestorId: %d\n",
+            pkt->cmdString(), pkt->getAddr(), pkt->requestorId());
     pkt->pushLabel(name());
 
     // check the response queue
     for (auto i = transmitList.begin();  i != transmitList.end(); ++i) {
-        if (pkt->trySatisfyFunctional((*i).pkt)) {
-            pkt->makeResponse();
-            return;
+        for (auto j = (*i).pkt->instructions.begin(); j != (*i).pkt->instructions.end(); j++)
+        {
+            if (pkt->trySatisfyFunctional((*j))) {
+                pkt->makeResponse();
+                return;
+            }
         }
     }
 
@@ -406,9 +411,13 @@ SerialLink::SerialLinkRequestPort::trySatisfyFunctional(PacketPtr pkt)
     auto i = transmitList.begin();
 
     while (i != transmitList.end() && !found) {
-        if (pkt->trySatisfyFunctional((*i).pkt)) {
-            pkt->makeResponse();
-            found = true;
+        for (auto j = (*i).pkt->instructions.begin(); j != (*i).pkt->instructions.end(); j++)
+        {
+            if (pkt->trySatisfyFunctional((*j))) {
+                pkt->makeResponse();
+                found = true;
+                break;
+            }
         }
         ++i;
     }

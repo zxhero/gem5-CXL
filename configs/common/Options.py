@@ -115,6 +115,10 @@ def addNoISAOptions(parser):
 
 
     parser.add_option("--memchecker", action="store_true")
+    parser.add_option("--disagregate_mem", action="store_true")
+    parser.add_option("--test-hybrid", action="store_true")
+    parser.add_option("--test-L1Remote", action="store_true")
+    parser.add_option("--test-L2Remote", action="store_true")
 
     # Cache Options
     parser.add_option("--external-memory-system", type="string",

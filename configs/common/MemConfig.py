@@ -39,6 +39,7 @@ from __future__ import absolute_import
 import m5.objects
 from common import ObjectList
 from common import HMC
+from m5.objects import *
 
 def create_mem_intf(intf, r, i, nbr_mem_ctrls, intlv_bits, intlv_size,
                     xor_low_bit):
@@ -147,7 +148,7 @@ def config_mem(options, system):
     else:
         subsystem = system
         xbar = system.membus
-
+    
     if opt_tlm_memory:
         system.external_memory = m5.objects.ExternalSlave(
             port_type="tlm_slave",
@@ -195,7 +196,7 @@ def config_mem(options, system):
     # array of memory interfaces and set their parameters to match
     # their address mapping in the case of a DRAM
     range_iter = 0
-    for r in system.mem_ranges:
+    for r in system.mem_ranges[:-1]:
         # As the loops iterates across ranges, assign them alternatively
         # to DRAM and NVM if both configured, starting with DRAM
         range_iter += 1
@@ -203,6 +204,7 @@ def config_mem(options, system):
         for i in range(nbr_mem_ctrls):
             if opt_mem_type and (not opt_nvm_type or range_iter % 2 != 0):
                 # Create the DRAM interface
+                print(i)
                 dram_intf = create_mem_intf(intf, r, i, nbr_mem_ctrls,
                                     intlv_bits, intlv_size, opt_xor_low_bit)
 
@@ -272,6 +274,196 @@ def config_mem(options, system):
             mem_ctrls[i].dram.device_size = options.hmc_dev_vault_size
         else:
             # Connect the controllers to the membus
-            mem_ctrls[i].port = xbar.master
+            mem_ctrls[i].monitor = CommMonitor()
+            xbar.master = mem_ctrls[i].monitor.cpu_side_port
+            mem_ctrls[i].port = mem_ctrls[i].monitor.mem_side_port
+    
+    use_dmem = getattr(options, "disagregate_mem", False)
+    if use_dmem == True:
+        if options.test_hybrid:
+            intlv_size = max(128, system.cache_line_size.value)
+            intlv_bits = 2
+            intlv_low_bit = int(math.log(intlv_size, 2))
+            memindex1 = 0
+            memindex2 = 1
+            r1 = AddrRange(start = system.mem_ranges[1].start, size = '1GB',
+                    intlvHighBit = \
+                        intlv_low_bit + intlv_bits - 1,
+                    xorHighBit = 0,
+                    intlvBits = intlv_bits,
+                    intlvMatch = 0)
+            r2 = AddrRange(start = system.mem_ranges[1].start, size = '1GB',
+                    intlvHighBit = \
+                        intlv_low_bit + intlv_bits - 1,
+                    xorHighBit = 0,
+                    intlvBits = intlv_bits,
+                    intlvMatch = 1)
+            memr1 = system.mem_ranges[1]
+            memr2 = system.mem_ranges[1]
 
+            for i in range(2,4):
+                # Create the DRAM interface
+                intf = ObjectList.mem_list.get("DDR4_2400_8x8")
+                dram_intf = create_mem_intf(intf, system.mem_ranges[1], i, 1,
+                            intlv_bits, intlv_size, opt_xor_low_bit)
+
+                # Set the number of ranks based on the command-line
+                # options if it was explicitly set
+                if issubclass(intf, m5.objects.DRAMInterface) and \
+                    opt_mem_ranks:
+                    dram_intf.ranks_per_channel = opt_mem_ranks
+
+                mem_ctrl = m5.objects.MemCtrl()
+
+                # Hookup the controller to the interface and add to the list
+                mem_ctrl.dram = dram_intf
+                mem_ctrl.monitor = CommMonitor()
+                xbar.master = mem_ctrl.monitor.cpu_side_port
+                mem_ctrl.port = mem_ctrl.monitor.mem_side_port
+
+                mem_ctrls.append(mem_ctrl)
+
+        elif options.test_L1Remote:
+            intlv_bits = 0
+            r1 = AddrRange(start = system.mem_ranges[1].start, size = '512MB')
+            r2 = AddrRange(start = r1.end, size = '512MB')
+            memr1 = r1
+            memr2 = r2
+            memindex1 = 0
+            memindex2 = 0
+        else :
+            intlv_bits = 0
+            r2 = AddrRange(start = system.mem_ranges[1].start, size = '512MB')
+            r1 = AddrRange(start = r2.end, size = '512MB')
+            memr1 = r1
+            memr2 = r2
+            memindex1 = 0
+            memindex2 = 0
+
+        dmem_res = []
+        serial_links = []
+
+        system.dmem_req = DMemLinkRequester(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        
+        system.dmem_req.monitor = CommMonitor()
+        xbar.master = system.dmem_req.monitor.cpu_side_port
+        system.dmem_req.monitor.mem_side_port = system.dmem_req.cpu_side_ports
+        link_buffer_size_req = 75
+        link_buffer_size_rsp = 75
+        num_lanes_per_link = 16
+        serial_link_speed = 16
+        total_ctrl_latency = '150ns'
+        reqToHop1 = SerialLink(ranges=[r1,r2],
+                                req_size=link_buffer_size_req,
+                                resp_size=link_buffer_size_rsp,
+                                num_lanes=num_lanes_per_link,
+                                link_speed=serial_link_speed,
+                                delay=total_ctrl_latency)
+        system.dmem_req.mem_side_ports = reqToHop1.cpu_side_port
+        system.dmem_router_h1 = DMemLinkRouter(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        reqToHop1.mem_side_port = system.dmem_router_h1.cpu_side_ports
+        Hop1ToMem = SerialLink(ranges=r1,
+                                req_size=link_buffer_size_req,
+                                resp_size=link_buffer_size_rsp,
+                                num_lanes=num_lanes_per_link,
+                                link_speed=serial_link_speed,
+                                delay=total_ctrl_latency)
+        Hop1ToHop2 = SerialLink(ranges=r2,
+                                req_size=link_buffer_size_req,
+                                resp_size=link_buffer_size_rsp,
+                                num_lanes=num_lanes_per_link,
+                                link_speed=serial_link_speed,
+                                delay=total_ctrl_latency)
+        system.dmem_router_h1.mem_side_ports = Hop1ToMem.cpu_side_port
+        system.dmem_router_h1.mem_side_ports = Hop1ToHop2.cpu_side_port
+        Hop1Mem = DMemLinkResponder(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        Hop1ToMem.mem_side_port = Hop1Mem.cpu_side_ports
+        # system.dmem_req.mem_side_ports = system.dmem_res.cpu_side_ports
+        # Create the DRAM interface
+        intf = ObjectList.mem_list.get("DDR4_2400_8x8")
+        dram_intf = create_mem_intf(intf, memr1, memindex1, 1,
+                            intlv_bits, intlv_size, opt_xor_low_bit)
+
+        # Set the number of ranks based on the command-line
+        # options if it was explicitly set
+        if issubclass(intf, m5.objects.DRAMInterface) and \
+           opt_mem_ranks:
+            dram_intf.ranks_per_channel = opt_mem_ranks
+
+        mem_ctrl = m5.objects.MemCtrl()
+
+        # Hookup the controller to the interface and add to the list
+        mem_ctrl.dram = dram_intf
+
+        mem_ctrls.append(mem_ctrl)
+        dmem_res.append(Hop1Mem)
+        serial_links.append(reqToHop1)
+        serial_links.append(Hop1ToMem)
+        serial_links.append(Hop1ToHop2)
+        # Connect the controllers to the membus
+        mem_ctrl.port = Hop1Mem.mem_side_ports
+
+        #set up subsystem 2
+        system.dmem_router_h2 = DMemLinkRouter(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        Hop1ToHop2.mem_side_port = system.dmem_router_h2.cpu_side_ports
+        Hop2ToMem = SerialLink(ranges=r2,
+                                req_size=link_buffer_size_req,
+                                resp_size=link_buffer_size_rsp,
+                                num_lanes=num_lanes_per_link,
+                                link_speed=serial_link_speed,
+                                delay=total_ctrl_latency)
+        system.dmem_router_h2.mem_side_ports = Hop2ToMem.cpu_side_port
+        Hop2Mem = DMemLinkResponder(
+            width = 16,
+            frontend_latency = 2,
+            forward_latency = 1,
+            response_latency = 2,
+        )
+        Hop2ToMem.mem_side_port = Hop2Mem.cpu_side_ports
+        # system.dmem_req.mem_side_ports = system.dmem_res.cpu_side_ports
+        # Create the DRAM interface
+        intf = ObjectList.mem_list.get("DDR4_2400_8x8")
+        dram_intf = create_mem_intf(intf, memr2, memindex2, 1,
+                            intlv_bits, intlv_size, opt_xor_low_bit)
+
+        # Set the number of ranks based on the command-line
+        # options if it was explicitly set
+        if issubclass(intf, m5.objects.DRAMInterface) and \
+           opt_mem_ranks:
+            dram_intf.ranks_per_channel = opt_mem_ranks
+
+        mem_ctrl = m5.objects.MemCtrl()
+
+        # Hookup the controller to the interface and add to the list
+        mem_ctrl.dram = dram_intf
+
+        mem_ctrls.append(mem_ctrl)
+        serial_links.append(Hop2ToMem)
+        dmem_res.append(Hop2Mem)
+        # Connect the controllers to the membus
+        mem_ctrl.port = Hop2Mem.mem_side_ports
+
+        subsystem.dmem_res = dmem_res
+        subsystem.serial_links = serial_links
+        
     subsystem.mem_ctrls = mem_ctrls

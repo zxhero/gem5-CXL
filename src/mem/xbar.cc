@@ -188,6 +188,8 @@ BaseXBar::Layer<SrcType, DstType>::tryTiming(SrcType* src_port)
     // destination port is already engaged in a transaction waiting
     // for a retry from the peer
     if (state == BUSY || waitingForPeer != NULL) {
+        if(src_port == NULL)
+            return false;
         // the port should not be waiting already
         assert(std::find(waitingForLayer.begin(), waitingForLayer.end(),
                          src_port) == waitingForLayer.end());

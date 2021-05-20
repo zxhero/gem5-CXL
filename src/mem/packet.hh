@@ -1509,6 +1509,9 @@ class Packet : public Printable
     HtmCacheFailure getHtmTransactionFailedInCacheRC() const;
 
     public:
+    /**
+     * used in cxl protocol
+     * */
     Command cxl_comm;
     unsigned cxl_size;
     unsigned ResCrd;
@@ -1527,6 +1530,17 @@ class Packet : public Printable
     AddrRange getCXLAddrRange() const{
         return RangeSize(getAddr(), cxl_size);
     };
+
+    /**
+     * used in new protocol
+     * */
+    int SNID;
+    int DNID;
+    int LID;
+    int TID;
+    Tick old_header_delay;
+    //Command Dmem_comm;
+    std::vector<PacketPtr> instructions;
 };
 
 #endif //__MEM_PACKET_HH

@@ -172,7 +172,7 @@ class NoncoherentXBar : public BaseXBar
 
     virtual bool recvTimingReq(PacketPtr pkt, PortID cpu_side_port_id);
     virtual bool recvTimingResp(PacketPtr pkt, PortID mem_side_port_id);
-    void recvReqRetry(PortID mem_side_port_id);
+    virtual void recvReqRetry(PortID mem_side_port_id);
     Tick recvAtomicBackdoor(PacketPtr pkt, PortID cpu_side_port_id,
                             MemBackdoorPtr *backdoor=nullptr);
     void recvFunctional(PacketPtr pkt, PortID cpu_side_port_id);

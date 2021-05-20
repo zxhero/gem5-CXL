@@ -83,7 +83,9 @@ def config_cache(options, system):
         if buildEnv['TARGET_ISA'] in ['x86', 'riscv']:
             walk_cache_class = PageTableWalkerCache
 
+    print(options.async_memory)
     if options.async_memory:
+        print(options.async_memory)
         dcache_class = L1_DCache_AM
         l2_cache_class = L2_Cache_AM
 
@@ -97,7 +99,7 @@ def config_cache(options, system):
     if options.l2cache and options.elastic_trace_en:
         fatal("When elastic trace is enabled, do not configure L2 caches.")
 
-    if options.l2cache:
+    if options.l2cache and not options.async_memory:
         # Provide a clock for the L2 and the L1-to-L2 bus here as they
         # are not connected using addTwoLevelCacheHierarchy. Use the
         # same clock as the CPUs.
@@ -207,9 +209,37 @@ def config_cache(options, system):
                         ExternalCache("cpu%d.icache" % i),
                         ExternalCache("cpu%d.dcache" % i))
 
+        print(options.l2cache, "and", options.async_memory)
+        if options.l2cache and options.async_memory:
+            # Provide a clock for the L2 and the L1-to-L2 bus here as they
+            # are not connected using addTwoLevelCacheHierarchy. Use the
+            # same clock as the CPUs.
+            print(options.l2cache, "and", options.async_memory)
+            system.cpu[i].l2 = l2_cache_class(clk_domain=system.cpu_clk_domain,
+                                       size=options.l2_size,
+                                       assoc=options.l2_assoc,
+                                       enable_bank_model=options.l2_enable_bank,
+                                       num_banks=options.l2_num_banks,
+                                       bank_intlv_high_bit=options.l2_intlv_bit)
+
+
+            system.cpu[i].tol2bus = L2XBar(clk_domain = system.cpu_clk_domain)
+            system.cpu[i].l2.cpu_side = system.cpu[i].tol2bus.master
+            system.cpu[i].l2.mem_side = system.membus.slave
+            if options.l2_hwp_type:
+                hwpClass = ObjectList.hwp_list.get(options.l2_hwp_type)
+                if system.cpu[i].l2.prefetcher != "Null":
+                    print("Warning: l2-hwp-type is set (", hwpClass, "), but",
+                          "the current l2 has a default Hardware Prefetcher",
+                          "of type", type(system.cpu[i].l2.prefetcher), ", using the",
+                          "specified by the flag option.")
+                system.cpu[i].l2.prefetcher = hwpClass()
+
         system.cpu[i].createInterruptController()
-        if options.l2cache:
+        if options.l2cache and not options.async_memory:
             system.cpu[i].connectAllPorts(system.tol2bus, system.membus)
+        elif options.l2cache and options.async_memory:
+            system.cpu[i].connectAllPorts(system.cpu[i].tol2bus, system.membus)
         elif options.external_memory_system:
             system.cpu[i].connectUncachedPorts(system.membus)
         else:

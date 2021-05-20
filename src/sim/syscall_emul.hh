@@ -112,6 +112,10 @@
 #define CMSG_ALIGN(len) (((len) + sizeof(size_t) - 1) & ~(sizeof(size_t) - 1))
 #endif
 
+void register_TCP(int fd);
+void remove_TCP(int fd);
+Tick TCP_last_time(int fd);
+bool is_TCP(int fd);
 //////////////////////////////////////////////////////////////////////
 //
 // The following emulation functions are generic enough that they
@@ -2625,6 +2629,7 @@ acceptFunc(SyscallDesc *desc, ThreadContext *tc,
     auto afdp = std::make_shared<SocketFDEntry>(host_fd, sfdp->_domain,
                                                 sfdp->_type, sfdp->_protocol);
     int retval = p->fds->allocFD(afdp);
+    register_TCP(retval);
     return retval;
 }
 
