@@ -172,7 +172,7 @@ if options.smt and options.num_cpus > 1:
 
 np = options.num_cpus
 addr1 = AddrRange(options.mem_size)
-addr2 = AddrRange(addr1.start + addr1.size(), size = '512MB')
+addr2 = AddrRange(addr1.end, size = '1GB')
 system = System(cpu = [CPUClass(cpu_id=i) for i in range(np)],
                 mem_mode = test_mem_mode,
                 mem_ranges = [addr1, addr2],
