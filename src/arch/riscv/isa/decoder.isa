@@ -445,8 +445,8 @@ decode QUADRANT default Unknown::unknown() {
                 format GetFin {
                     0x3: getfin({{
                         Rd = data;
-                    }}, IsNonSpeculative, No_OpClass);
-                    // }}, IsSerializeAfter, IsNonSpeculative, No_OpClass);
+                    }}, No_OpClass);
+                    // }}, IsNonSpeculative, No_OpClass);
                 }
                 format MACFGRdOp {
                     0x0, 0x1, 0x2: memaccread({{

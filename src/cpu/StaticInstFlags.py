@@ -64,6 +64,7 @@ class StaticInstFlags(Enum):
         'IsLoad',           # Reads from memory (load or prefetch).
         'IsStore',          # Writes to memory.
         'IsAtomic',         # Does atomic RMW to memory.
+        'IsAsyncMem',       # Does Asynchronous Memory operations.
         'IsStoreConditional',   # Store conditional instruction.
         'IsIndexed',        # Accesses memory with an indexed address
                             # computation

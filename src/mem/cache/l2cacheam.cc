@@ -1265,6 +1265,7 @@ void L2CacheAM::getFinHelper()
             PacketPtr reqpkt = (PacketPtr) outstandingAsyncMemPkt;
             reqpkt->makeTimingResponse();
             uint64_t resp_id = spm_addr_pkt_id;
+            assert(0 < resp_id && resp_id <= asyncMemReqLength);
             reqpkt->setData((uint8_t *)&resp_id);
             cpuSidePort.schedTimingResp(reqpkt,
                 clockEdge(logicLatency));

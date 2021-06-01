@@ -178,6 +178,7 @@ const std::array<const char *, NumMiscRegs> M5_VAR_USED MiscRegNames = {{
     [MISCREG_QBASE]         = "MEMACCQBASE",
     [MISCREG_QLENGTH]       = "MEMACCQLENGTH",
     [MISCREG_HEAD0]         = "MEMACCHEAD0",
+    [MISCREG_GETFIN]        = "MEMACCGETFIN",
 }};
 
 ISA::ISA(Params *p) : BaseISA(p)

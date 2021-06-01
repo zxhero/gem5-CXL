@@ -1206,7 +1206,9 @@ DefaultCommit<Impl>::commitHead(const DynInstPtr &head_inst, unsigned inst_num)
                 "at the head of the ROB, PC %s.\n",
                 tid, head_inst->seqNum, head_inst->pcState());
 
-        if (inst_num > 0 || iewStage->hasStoresToWB(tid)) {
+        // if (inst_num > 0 || iewStage->hasStoresToWB(tid)) {
+        if ((inst_num > 0 || iewStage->hasStoresToWB(tid)) &&
+            !head_inst->isAsyncMem()) {
             DPRINTF(Commit,
                     "[tid:%i] [sn:%llu] "
                     "Waiting for all stores to writeback.\n",

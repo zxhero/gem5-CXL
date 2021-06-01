@@ -68,9 +68,12 @@ def template GetFinConstructor {{
 
         // overwrite default flags
         flags[IsMemRef] = true;
-        flags[IsLoad] = true;
-        flags[IsStore] = false;
-        flags[IsAtomic] = false;
+        // flags[IsLoad] = true;
+        flags[IsLoad] = false;
+        flags[IsStore] = true;
+        // flags[IsAtomic] = false;
+        flags[IsAtomic] = true;
+        flags[IsAsyncMem] = true;
     }
 }};
 
@@ -110,9 +113,10 @@ def template GetFinExecute {{
         RegVal data = 0, olddata;
         if (MACFGData.find(cfgreg) != MACFGData.end()) {
             assert(cfgreg == MACFG_GETFIN);
-            fault = initiateMemRead(xc, traceData,
-                0x1000000000000000 + cfgreg, data,
-                Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE);
+            fault = writeMemTimingLE(xc, traceData, data,
+                0x1000000000000000 + cfgreg,
+                Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE,
+                nullptr);
         } else {
             std::string error = csprintf("Illegal MACFG index %#x\n", cfgreg);
             fault = make_shared<IllegalInstFault>(error, machInst);
@@ -350,6 +354,7 @@ def template ALoadStoreConstructor {{
         flags[IsLoad] = false;
         flags[IsStore] = true;
         flags[IsAtomic] = true;
+        flags[IsAsyncMem] = true;
     }
 }};
 

@@ -58,6 +58,7 @@
 #include "cpu/thread_context.hh"
 #include "debug/Cache.hh"
 #include "debug/CacheAM.hh"
+#include "debug/CacheAMReq.hh"
 #include "debug/CacheTags.hh"
 #include "debug/CacheVerbose.hh"
 #include "debug/LLSC.hh"
@@ -114,13 +115,26 @@ L1CacheAM::~L1CacheAM()
 
 void L1CacheAM::recvTimingReq(PacketPtr pkt)
 {
-    if (pkt->cmd == MemCmd::AsyncMemWrReq ||
-        pkt->cmd == MemCmd::AsyncMemLdReq) {
-        uint64_t spm_addr = 0;
-        pkt->writeData((uint8_t*) &spm_addr);
-        DPRINTF(CacheAM,
-            "%s L1CacheAM: async mem load/store at 0x%lx, spm_addr = 0x%lx\n",
-            __func__, pkt->getAddr(), spm_addr);
+    // if (pkt->cmd == MemCmd::AsyncMemWrReq ||
+    //     pkt->cmd == MemCmd::AsyncMemLdReq) {
+    if (pkt->req->isAsyncMem()) {
+        if (pkt->req->isAsyncMemAload()) {
+            DPRINTF(CacheAMReq,
+                "L1CacheAM: aload at %ld\n",
+                curCycle());
+        } else if (pkt->req->isAsyncMemAstore()) {
+            DPRINTF(CacheAMReq,
+                "L1CacheAM: astore at %ld\n",
+                curCycle());
+        } else if (pkt->req->isAsyncTestFin()) {
+            DPRINTF(CacheAMReq,
+                "L1CacheAM: testfin at %ld\n",
+                curCycle());
+        } else if (pkt->req->isAsyncCfgReg()) {
+            DPRINTF(CacheAMReq,
+                "L1CacheAM: cfgreg at %ld\n",
+                curCycle());
+        }
         // asyncMemCmdPackets.push_back(pkt);
         memSidePort.schedTimingReq(pkt, clockEdge(forwardLatency));
         return ;
@@ -133,8 +147,10 @@ void L1CacheAM::recvTimingReq(PacketPtr pkt)
         // TODO: just bypass to L2 Cache
         //spmBypassedPackets.push_back(pkt);
         DPRINTF(CacheAM,
-            "%s L1CacheAM: access spm at %lx\n",
-            __func__, pkt->getAddr());
+            "%s L1CacheAM: access spm at %lx"
+            " (pc=%lx)\n",
+            __func__, pkt->getAddr(),
+            pkt->req->hasPC()? pkt->req->getPC() : 0);
         memSidePort.schedTimingReq(pkt, clockEdge(forwardLatency));
         return;
     }
@@ -154,6 +170,9 @@ void L1CacheAM::recvTimingReq(PacketPtr pkt)
 
 void L1CacheAM::recvTimingResp(PacketPtr pkt)
 {
+    DPRINTF(CacheAM,
+        "L1CacheAM: recvTimingResp addr %lx at %ld\n",
+        pkt->getAddr(), curCycle());
     const Addr vaddr = pkt->getAddr();
     uintptr_t vaddr_prefix = vaddr >> 48;
     bool is_spm_addr = (vaddr_prefix == 0x1000);

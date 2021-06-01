@@ -527,6 +527,7 @@ class BaseDynInst : public ExecContext, public RefCounted
     bool isLoad()         const { return staticInst->isLoad(); }
     bool isStore()        const { return staticInst->isStore(); }
     bool isAtomic()       const { return staticInst->isAtomic(); }
+    bool isAsyncMem()     const { return staticInst->isAsyncMem(); }
     bool isStoreConditional() const
     { return staticInst->isStoreConditional(); }
     bool isInstPrefetch() const { return staticInst->isInstPrefetch(); }
