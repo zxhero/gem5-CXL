@@ -126,7 +126,8 @@ BaseCPU::BaseCPU(Params *p, bool is_checker)
       _dataRequestorId(p->system->getRequestorId(this, "data")),
       _taskId(ContextSwitchTaskId::Unknown), _pid(invldPid),
       _switchedOut(p->switched_out), _cacheLineSize(p->system->cacheLineSize()),
-      interrupts(p->interrupts), numThreads(p->numThreads), system(p->system),
+      interrupts(p->interrupts), ambufs(p->ambufs),
+      numThreads(p->numThreads), system(p->system),
       previousCycle(0), previousState(CPU_STATE_SLEEP),
       functionTraceStream(nullptr), currentFunctionStart(0),
       currentFunctionEnd(0), functionEntryTick(0),
@@ -436,6 +437,7 @@ BaseCPU::registerThreadContexts()
             tc->getProcessPtr()->assignThreadContext(tc->contextId());
 
         interrupts[tid]->setThreadContext(tc);
+        ambufs[tid]->setThreadContext(tc);
         tc->getIsaPtr()->setThreadContext(tc);
     }
 }

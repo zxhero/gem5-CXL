@@ -1206,9 +1206,9 @@ DefaultCommit<Impl>::commitHead(const DynInstPtr &head_inst, unsigned inst_num)
                 "at the head of the ROB, PC %s.\n",
                 tid, head_inst->seqNum, head_inst->pcState());
 
-        // if (inst_num > 0 || iewStage->hasStoresToWB(tid)) {
-        if ((inst_num > 0 || iewStage->hasStoresToWB(tid)) &&
-            !head_inst->isAsyncMem()) {
+        if (inst_num > 0 || iewStage->hasStoresToWB(tid)) {
+        // if ((inst_num > 0 || iewStage->hasStoresToWB(tid)) &&
+        //     !head_inst->isAsyncMem()) {
             DPRINTF(Commit,
                     "[tid:%i] [sn:%llu] "
                     "Waiting for all stores to writeback.\n",
@@ -1263,6 +1263,30 @@ DefaultCommit<Impl>::commitHead(const DynInstPtr &head_inst, unsigned inst_num)
     // Stores mark themselves as completed.
     if (!head_inst->isStore() && inst_fault == NoFault) {
         head_inst->setCompleted();
+        // MEMACC: send clear commands to l1cacheam
+        // if (head_inst->isAMGet() && head_inst->readMemAccPredicate()) {
+        //     Addr EA = 0x1000000000000000;
+        //     if (head_inst->isAMGetFin()) {
+        //         EA += RiscvISA::MACFG_CLEARFIN;
+        //     } else if (head_inst->isAMGetFree()) {
+        //         EA += RiscvISA::MACFG_CLEARFREE;
+        //     } else {
+        //         assert(0);
+        //     }
+        //     RequestPtr _amclear_req = std::make_shared<Request>(
+        //         EA, 4, // 4 is a dummy value. This request is empty.
+        //         Request::UNCACHEABLE | Request::ASYNCMEM_CFGREG,
+        //         head_inst->requestorId()
+        //     );
+        //     _amclear_req->setPC(head_inst->pcState().instAddr());
+        //     _amclear_req->setReqInstSeqNum(head_inst->seqNum);
+        //     // _amclear_req->taskId(taskId());
+
+        //     PacketPtr amclear_pkt = Packet::createWrite(_amclear_req);
+        //     assert(amclear_pkt != nullptr);
+        //     amclear_pkt->allocate();
+        //     iewStage->ldstQueue.getDataPort().sendTimingReq(amclear_pkt);
+        // }
     }
 
     if (inst_fault != NoFault) {

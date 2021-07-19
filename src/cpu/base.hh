@@ -50,6 +50,7 @@
 #if THE_ISA == NULL_ISA
 #include "arch/null/cpu_dummy.hh"
 #else
+#include "arch/generic/ambufs.hh"
 #include "arch/generic/interrupts.hh"
 #include "base/statistics.hh"
 #include "mem/port_proxy.hh"
@@ -213,6 +214,7 @@ class BaseCPU : public ClockedObject
 
   protected:
     std::vector<BaseInterrupts*> interrupts;
+    std::vector<BaseAMBufs*> ambufs;
 
   public:
     BaseInterrupts *
@@ -224,6 +226,16 @@ class BaseCPU : public ClockedObject
         assert(interrupts.size() > tid);
         return interrupts[tid];
     }
+    BaseAMBufs *
+    getAMBufController(ThreadID tid)
+    {
+        if (ambufs.empty())
+            return NULL;
+
+        assert(ambufs.size() > tid);
+        return ambufs[tid];
+    }
+
 
     virtual void wakeup(ThreadID tid) = 0;
 

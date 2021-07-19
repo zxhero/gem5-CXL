@@ -56,7 +56,9 @@ class L1Cache(Cache):
     response_latency = 2
     enable_bank_model = False
     mshrs = 4
+    # mshrs = 512
     tgts_per_mshr = 20
+    # write_buffers = 512
 
 class L1_DCache_AM(L1CacheAM):
     assoc = 2
@@ -82,8 +84,10 @@ class L2Cache(Cache):
     response_latency = 5
     enable_bank_model = False
     mshrs = 20
+    # mshrs = 512
     tgts_per_mshr = 12
     write_buffers = 8
+    # write_buffers = 512
 
 class L2_Cache_AM(L2CacheAM):
     assoc = 8

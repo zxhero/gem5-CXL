@@ -40,6 +40,7 @@ output header {{
 #include <tuple>
 #include <vector>
 
+#include "arch/riscv/insts/amem.hh"
 #include "arch/riscv/insts/amo.hh"
 #include "arch/riscv/insts/compressed.hh"
 #include "arch/riscv/insts/mem.hh"

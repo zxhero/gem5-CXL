@@ -47,31 +47,21 @@
 #define __MEM_CACHE_L2CACHEAM_HH__
 
 #include <cstdint>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
 #include "base/types.hh"
 #include "mem/cache/cache.hh"
+#include "mem/cache/cacheampara.hh"
 #include "mem/packet.hh"
 #include "mem/request.hh"
 #include "mem/simple_mem.hh"
 
-#define FL_REG_LENGTH 32
-
 class CacheBlk;
 struct L2CacheAMParams;
 class MSHR;
-
-enum MemAccConfigRegs
-{
-    MEMACC_CFG_QBASE =   0x0,
-    MEMACC_CFG_QLENGTH = 0x1,
-    MEMACC_CFG_HEAD0 =   0x2,
-    MEMACC_CFG_GETFIN =  0x3,
-
-    MEMACC_CFG_COUNT,
-};
 
 enum SpmState {
     READY_TO_SERVE,
@@ -81,7 +71,9 @@ enum SpmState {
     ALLOC_REQ_ENTRY,
     FILL_REQ_ENTRY,
     WRITEBACK_FREELIST,
+    GET_FREELIST,
     WRITEBACK_FINLIST,
+    GET_FINLIST,
     EXEC_ASTORE,
     EXEC_ALOAD,
     EXEC_TESTFIN,
@@ -91,7 +83,6 @@ enum SpmState {
     WRITE_FREE_LIST,
     GET_REQ_ENTRY,
     FIN_REQ_ENTRY,
-    ALLOC_FIN_ENTRY,
     FILL_FIN_ENTRY,
     CLEAR_FIN_LIST,
     FIN_ALOAD,
@@ -105,7 +96,9 @@ static const char* spmStateStr[SPM_STATE_COUNT] = {
     "ALLOC_REQ_ENTRY",
     "FILL_REQ_ENTRY",
     "WRITEBACK_FREELIST",
+    "GET_FREELIST",
     "WRITEBACK_FINLIST",
+    "GET_FINLIST",
     "EXEC_ASTORE",
     "EXEC_ALOAD",
     "EXEC_TESTFIN",
@@ -115,7 +108,6 @@ static const char* spmStateStr[SPM_STATE_COUNT] = {
     "WRITE_FREE_LIST",
     "GET_REQ_ENTRY",
     "FIN_REQ_ENTRY",
-    "ALLOC_FIN_ENTRY",
     "FILL_FIN_ENTRY",
     "CLEAR_FIN_LIST",
     "FIN_ALOAD"
@@ -132,6 +124,8 @@ enum SpmFSMEvent {
     ASTORE_REQ,
     TESTFIN_REQ,
     GETFIN_REQ,
+    WRITE_FREELIST_REQ,
+    GET_FREELIST_REQ,
     RETRY_EVENT,
     SPM_FSM_EVENT_COUNT
 };
@@ -146,6 +140,8 @@ static const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
     "ASTORE_REQ",
     "TESTFIN_REQ",
     "GETFIN_REQ",
+    "WRITE_FREELIST_REQ",
+    "GET_FREELIST_REQ",
     "RETRY_EVENT"
 };
 
@@ -154,7 +150,6 @@ static const char* spmFSMEventStr[SPM_FSM_EVENT_COUNT] {
  */
 class L2CacheAM : public Cache
 {
-    RequestorID innerRequestorId;
     /**
      * A deferred packet stores a packet along with its scheduled
      * transmission time
@@ -267,6 +262,10 @@ class L2CacheAM : public Cache
     const double bandwidth;
     Tick getSpmLatency() const; // same as SimpleMemory's latency
     void spmAccess(PacketPtr pkt);
+    void* spmDebugAccess(Addr addr) {
+        assert(spmRange.contains(addr));
+        return pmemAddr + addr - spmRange.start();
+    }
     bool spmRecvTimingReq(PacketPtr pkt);
 
     /**
@@ -316,35 +315,15 @@ class L2CacheAM : public Cache
      */
     // std::unique_ptr<Packet> pendingDelete;
 
-    EventFunctionWrapper retryProcessAMReqRespEvent;
-    std::list<PacketPtr> pendingAsyncMemPkts;
-    std::list<PacketPtr> pendingAsyncMemRespPkts;
-    EventFunctionWrapper retryNextEvent;
+    // EventFunctionWrapper retryProcessAMReqRespEvent;
+    // std::list<PacketPtr> pendingAsyncMemRespPkts;
+    // std::list<PacketPtr> pendingAsyncMemGetfinPkts;
+    // EventFunctionWrapper retryNextEvent;
 
     struct AsyncMemReqEntry {
         uint64_t entry;
         uint16_t finListPos;
     };
-    struct SpmStateMachine {
-        SpmState state;
-        union {
-            int64_t val;
-            AsyncMemReqEntry entry;
-        };
-        int64_t val2;
-        SpmStateMachine() :
-            state(READY_TO_SERVE), val(0), val2(0) {}
-    } stateMachine;
-    void spmFsmProcess(SpmFSMEvent spmFsmEvent, void* data);
-    PacketPtr buildSpmAccessPacket(uint64_t spmAddr,
-        bool isRead, size_t pktSize);
-    void rebuildAsyncMemReqQueue();
-    void rebuildAsyncMemReqFreeList();
-    void rebuildAsyncMemReqFinList();
-    void retryProcessAMReqAndResp();
-    bool retryProcessAMReq();
-    bool retryProcessAMResp();
-    int retryProcessRoundRobin;
 
     enum AsyncMemReqEntryState {
         AMRE_IDLE,
@@ -352,11 +331,11 @@ class L2CacheAM : public Cache
         AMRE_ASTORE,
         AMRE_FINISH
     };
-    AsyncMemReqEntryState getAsyncMemReqEntryState(
+    static AsyncMemReqEntryState getAsyncMemReqEntryState(
         AsyncMemReqEntry entry) {
         return (AsyncMemReqEntryState)(entry.entry >> 57);
     }
-    AsyncMemReqEntry buildMemReqEntry(AsyncMemReqEntryState state,
+    static AsyncMemReqEntry buildMemReqEntry(AsyncMemReqEntryState state,
         uintptr_t spmAddr, uintptr_t memAddr) {
         AsyncMemReqEntry entry;
         entry.entry =
@@ -366,7 +345,7 @@ class L2CacheAM : public Cache
         entry.finListPos = 0;
         return entry;
     }
-    void decodeMemReqEntry(AsyncMemReqEntry entry,
+    static void decodeMemReqEntry(AsyncMemReqEntry entry,
         AsyncMemReqEntryState &state,
         uintptr_t &spmAddr, uintptr_t &memAddr,
         uint16_t &finListPos) {
@@ -378,18 +357,167 @@ class L2CacheAM : public Cache
         state = (AsyncMemReqEntryState) _entry;
         finListPos = entry.finListPos;
     }
+    static AsyncMemReqEntryState getMemReqEntryState(AsyncMemReqEntry _entry)
+    {
+        AsyncMemReqEntryState _state;
+        uintptr_t spmAddr, memAddr;
+        uint16_t finListPos = 0;
+        decodeMemReqEntry(_entry, _state,
+            spmAddr, memAddr,finListPos);
+        return _state;
+    }
 
-    /* struct AsyncMemReqEntry {
-        bool valid;
-        bool finished;
-        uintptr_t spm_addr;
-        uintptr_t mem_addr;
-        AsyncMemReqEntry(): valid(false),
-            finished(false), spm_addr(0),
-            mem_addr(0) {}
-    };*/
+    class SpmStateMachine {
+        protected:
+            const Cycles& logicLatency;
+            unsigned int &asyncMemReqLength;
+            uint64_t &asyncMemReqBase;
+            int64_t &asyncMemFinishHead;
+            int64_t &asyncMemFinishTail;
+            int64_t &asyncMemFreeHead;
+            int64_t &asyncMemFreeTail;
+            int64_t &asyncMemFinishCount;
+            int64_t &asyncMemOutstandingCount;
+
+            RequestorID innerRequestorId;
+            PacketPtr outstandingAsyncMemPkt;
+            SpmState state;
+
+            L2CacheAM *parent;
+            std::list<PacketPtr> pendingAsyncMemPkts;
+            int capacity;
+            EventFunctionWrapper retryProcessAmEvent;
+            void ready_to_serve() {
+                state = READY_TO_SERVE;
+                if (!retryProcessAmEvent.scheduled()) {
+                    parent->schedule(retryProcessAmEvent, curTick() + 1);
+                }
+            }
+            EventFunctionWrapper retryNextEvent;
+        public:
+            SpmStateMachine(L2CacheAM *em, int _capacity,
+                RequestorID reqId) :
+                logicLatency(em->logicLatency),
+                asyncMemReqLength(em->asyncMemReqLength),
+                asyncMemReqBase(em->asyncMemReqBase),
+                asyncMemFinishHead(em->asyncMemFinishHead),
+                asyncMemFinishTail(em->asyncMemFinishTail),
+                asyncMemFreeHead(em->asyncMemFreeHead),
+                asyncMemFreeTail(em->asyncMemFreeTail),
+                asyncMemFinishCount(em->asyncMemFinishCount),
+                asyncMemOutstandingCount(em->asyncMemOutstandingCount),
+                innerRequestorId(reqId),
+                outstandingAsyncMemPkt(nullptr),
+                state(READY_TO_SERVE),
+                parent(em), capacity(_capacity),
+                retryProcessAmEvent([this]{retryProcessAm();},
+                    em->name()),
+                retryNextEvent([this]{retryNext();},
+                    em->name()) {}
+            virtual void spmFsmProcess(SpmFSMEvent spmFsmEvent,
+                void* data) = 0;
+            bool addPacket(PacketPtr pkt);
+            bool isFull() {
+                return pendingAsyncMemPkts.size() == capacity;
+            }
+            virtual void retryProcessAm() = 0;
+            RequestorID getRequestorId() {return innerRequestorId;}
+            void setOutstandingAsyncMemPkt(PacketPtr _pkt) {
+                outstandingAsyncMemPkt = _pkt;
+            }
+            PacketPtr getOutstandingAsyncMemPkt() {
+                return outstandingAsyncMemPkt;
+            }
+            PacketPtr buildSpmAccessPacket(uint64_t spmAddr,
+                bool isRead, size_t pktSize);
+            Tick clockEdge(Cycles cyc) {
+                assert(parent != nullptr);
+                return parent->clockEdge(cyc);
+            }
+            virtual const std::string name() const {return "SpmStateMachine";}
+            Cycles curCycle() const { return parent->curCycle(); }
+            void retryNext() {
+                spmFsmProcess(RETRY_EVENT, nullptr);
+            }
+    };
+
+    class AmReqStateMachine : public SpmStateMachine {
+        private:
+            union {
+                int64_t val;
+                AsyncMemReqEntry entry;
+            };
+            int64_t val2;
+            void allocReqEntryHelper(AsyncMemReqEntryState state);
+            void fillReqEntryHelper(uint64_t spm_addr_pkt_id);
+            void rebuildAsyncMemReqQueue();
+            void rebuildAsyncMemReqFreeList();
+            void rebuildAsyncMemReqFinList();
+        public:
+            AmReqStateMachine(L2CacheAM *em, int _capacity,
+                RequestorID reqId) :
+                L2CacheAM::SpmStateMachine(em, _capacity,
+                    reqId), val(0), val2(0) {}
+            void spmFsmProcess(SpmFSMEvent spmFsmEvent,
+                void* data);
+            void retryProcessAm() override;
+            const std::string name() const { return "AmReqStateMachine"; }
+    } amReqStateMachine;// aload/astore
+
+    class AmRespStateMachine : public SpmStateMachine {
+        private:
+            union {
+                int64_t val;
+                AsyncMemReqEntry entry;
+            };
+            int64_t val2;
+            uint16_t tempFinListReg[FL_REG_LENGTH];
+            uint16_t tempFinListBackReg[FL_REG_LENGTH];
+            int pullRemains;
+            void writebackFinListIfRemains();
+            void getFinListIfRemains();
+            void getfinRespOrPull();
+            void tryFillFinEntry();
+            bool finListRegFull() {
+                return tempFinListReg[0] == FL_REG_LENGTH - 1;
+            }
+            bool putIntoFinListReg(uint16_t spm_addr_pkt_id);
+            void getfinRespHelper(uint16_t respReg[]);
+        public:
+            AmRespStateMachine(L2CacheAM *em, int _capacity,
+                RequestorID reqId) :
+                L2CacheAM::SpmStateMachine(em, _capacity,
+                    reqId), val(0), val2(0), pullRemains(0) {
+                memset(tempFinListReg, 0, sizeof(tempFinListReg));
+            }
+            void spmFsmProcess(SpmFSMEvent spmFsmEvent,
+                void* data);
+            void retryProcessAm() override;
+            const std::string name() const { return "AmRespStateMachine"; }
+    } amRespStateMachine; // mem resp/getfin
+
+    class FreeListStateMachine : public SpmStateMachine {
+        private:
+            uint16_t tempFreeListReg[FL_REG_LENGTH];
+            uint16_t wbData[FL_REG_LENGTH] = {0};
+            int pullRemains;
+            void writebackFreeListIfRemains();
+            void getFreeListIfRemains();
+            void responseAndPull();
+        public:
+            FreeListStateMachine(L2CacheAM *em, int _capacity,
+                RequestorID reqId) :
+                L2CacheAM::SpmStateMachine(em, _capacity,
+                    reqId), pullRemains(0) {
+                memset(tempFreeListReg, 0, sizeof(tempFreeListReg));
+            }
+            void spmFsmProcess(SpmFSMEvent spmFsmEvent,
+                void* data);
+            void retryProcessAm() override;
+            const std::string name() const { return "FreeListStateMachine"; }
+    } freeListStateMachine; // get/writeback free list
+
     Tick lastSpmFsmTick;
-    PacketPtr outstandingAsyncMemPkt;
     unsigned int asyncMemReqLength;
     uint64_t asyncMemReqBase;
     int64_t asyncMemFinishHead, asyncMemFinishTail;
@@ -398,23 +526,12 @@ class L2CacheAM : public Cache
     int64_t asyncMemFreeHead, asyncMemFreeTail;
     uintptr_t asyncMemReqEnd, asyncMemFreeEnd;
     uintptr_t asyncMemFinEnd;
-    uintptr_t tempFreeListBase;
-    uint16_t tempFreeListReg[FL_REG_LENGTH];
-    uintptr_t tempFinListBase;
-    uint16_t tempFinListReg[FL_REG_LENGTH];
+    // tempFinListReg[0] is the number of valid Id in the Reg
     // std::vector<AsyncMemReqEntry> asyncMemReqs;
     std::vector<uint64_t> asyncMemConfigRegs;
+    std::map<RequestorID, SpmStateMachine*> routeTo;
     int allocAsyncMemReq(uint64_t spmAddr, Addr memAddr);
     bool checkAsyncMemReq(uint64_t handle);
-    void allocReqEntryHelper(AsyncMemReqEntryState state);
-    void fillReqEntryHelper(uint64_t spm_addr_pkt_id);
-    void allocFinEntryHelper(uint64_t fin_entry);
-    void getFinHelper();
-    void retryNext();
-    // return true if hit temp reg(free list buffer)
-    bool accessFreeList(int pos, bool isRead, uint64_t &spm_addr_pkt_id);
-    // return true if hit temp reg(free list buffer)
-    bool accessFinList(int pos, bool isRead, uint64_t &spm_addr_pkt_id);
 
   protected:
     void recvTimingResp(PacketPtr pkt) override;

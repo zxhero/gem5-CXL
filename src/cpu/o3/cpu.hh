@@ -332,6 +332,10 @@ class FullO3CPU : public BaseO3CPU
     /** Processes any an interrupt fault. */
     void processInterrupts(const Fault &interrupt);
 
+    /** Processes ambufs. */
+    void processAMBufs();
+    BaseAMBufs* getAMBufs() { return ambufs[0]; }
+
     /** Halts the CPU. */
     void halt() { panic("Halt not implemented!\n"); }
 

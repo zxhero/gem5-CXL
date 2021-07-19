@@ -42,6 +42,7 @@
 
 #include "cpu/o3/cpu.hh"
 
+#include "arch/generic/ambufs.hh"
 #include "arch/generic/traits.hh"
 #include "config/the_isa.hh"
 #include "cpu/activity.hh"
@@ -506,6 +507,38 @@ FullO3CPU<Impl>::regStats()
 
 template <class Impl>
 void
+FullO3CPU<Impl>::processAMBufs()
+{
+    assert(0);
+    BaseAMBufs *ambuf = this->ambufs[0];
+    assert(ambuf != nullptr);
+
+    int flags = ambuf->needFetchData();
+    if (flags & AMBufsFetchFinishList) {
+        RequestPtr _getfin_req = std::make_shared<Request>(
+            ambuf->getAddr(AMBufsFetchFinishList),
+            ambuf->getSize(AMBufsFetchFinishList),
+            Request::UNCACHEABLE | Request::ASYNCMEM_CFGREG,
+            _dataRequestorId
+        );
+
+        _getfin_req->taskId(taskId());
+        // _getfin_req->setContext(this->thread[tid]->contextId());
+
+        PacketPtr getfin_pkt = Packet::createWrite(_getfin_req);
+        assert(getfin_pkt != nullptr);
+        getfin_pkt->allocate();
+
+        this->iew.ldstQueue.getDataPort().sendTimingReq(getfin_pkt);
+        ambuf->setFetchDataMask(AMBufsFetchFinishList);
+    } else if (flags & AMBufsFetchFreeList) {
+        // TODO:
+        assert(0);
+    }
+}
+
+template <class Impl>
+void
 FullO3CPU<Impl>::tick()
 {
     DPRINTF(O3CPU, "\n\nFullO3CPU: Ticking main, FullO3CPU.\n");
@@ -527,6 +560,9 @@ FullO3CPU<Impl>::tick()
     iew.tick();
 
     commit.tick();
+
+    // AM: refetch data if needed
+    // processAMBufs();
 
     // Now advance the time buffers
     timeBuffer.advance();

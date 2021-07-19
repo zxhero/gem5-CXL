@@ -47,6 +47,7 @@ if env['TARGET_ISA'] == 'riscv':
     Source('faults.cc')
     Source('isa.cc')
     Source('interrupts.cc')
+    Source('ambufs.cc')
     Source('locked_mem.cc')
     Source('process.cc')
     Source('pagetable.cc')
@@ -59,11 +60,13 @@ if env['TARGET_ISA'] == 'riscv':
 
     Source('bare_metal/fs_workload.cc')
 
+    SimObject('RiscvAMBufs.py')
     SimObject('RiscvFsWorkload.py')
     SimObject('RiscvInterrupts.py')
     SimObject('RiscvISA.py')
     SimObject('RiscvTLB.py')
 
+    DebugFlag('AMBuf')
     DebugFlag('RiscvMisc')
     DebugFlag('TLBVerbose')
     DebugFlag('PageTableWalker', \

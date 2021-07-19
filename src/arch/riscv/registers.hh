@@ -45,6 +45,7 @@
 #ifndef __ARCH_RISCV_REGISTERS_HH__
 #define __ARCH_RISCV_REGISTERS_HH__
 
+#include <array>
 #include <map>
 #include <string>
 #include <vector>
@@ -57,17 +58,35 @@
 
 namespace RiscvISA {
 
+constexpr int FL_REG_LENGTH = 32;
+
 using RiscvISAInst::MaxInstSrcRegs;
 using RiscvISAInst::MaxInstDestRegs;
 const int MaxMiscDestRegs = 2;
 
+enum BufRegIndex {
+    FREELIST_BUF_REG,
+    FINLIST_BUF_REG,
+    FREELIST_BACK_BUF_REG,
+
+    NUM_BUF_REG_COUNT
+};
+constexpr int NumBufReg = NUM_BUF_REG_COUNT;
+
 // Not applicable to RISC-V
-using VecElem = ::DummyVecElem;
-using VecReg = ::DummyVecReg;
-using ConstVecReg = ::DummyConstVecReg;
-using VecRegContainer = ::DummyVecRegContainer;
-constexpr unsigned NumVecElemPerVecReg = ::DummyNumVecElemPerVecReg;
-constexpr size_t VecRegSizeBytes = ::DummyVecRegSizeBytes;
+// using VecElem = ::DummyVecElem;
+// using VecReg = ::DummyVecReg;
+// using ConstVecReg = ::DummyConstVecReg;
+// using VecRegContainer = ::DummyVecRegContainer;
+// constexpr unsigned NumVecElemPerVecReg = ::DummyNumVecElemPerVecReg;
+// constexpr size_t VecRegSizeBytes = ::DummyVecRegSizeBytes;
+
+constexpr unsigned NumVecElemPerVecReg = 16;
+constexpr size_t VecRegSizeBytes = 64;
+using VecElem = uint32_t;
+using VecReg = ::VecRegT<VecElem, NumVecElemPerVecReg, false>;
+using ConstVecReg = ::VecRegT<VecElem, NumVecElemPerVecReg, true>;
+using VecRegContainer = VecReg::Container;
 
 // Not applicable to RISC-V
 using VecPredReg = ::DummyVecPredReg;
@@ -81,12 +100,17 @@ const int NumMicroIntRegs = 1;
 const int NumIntRegs = NumIntArchRegs + NumMicroIntRegs;
 const int NumFloatRegs = 32;
 
-const unsigned NumVecRegs = 1;  // Not applicable to RISC-V
+const unsigned NumVecRegs = 32 + NumBufReg;  // Not applicable to RISC-V
                                 // (1 to prevent warnings)
 const int NumVecPredRegs = 1;  // Not applicable to RISC-V
                                // (1 to prevent warnings)
 
-const int NumCCRegs = 0;
+enum AM_CC_Idx {
+    AM_FIN_LIST_EMPTY,
+    AM_FREE_LIST_EMPTY,
+    AM_CC_COUNT
+};
+constexpr int NumCCRegs = AM_CC_COUNT;
 
 // Semantically meaningful register indices
 const int ZeroReg = 0;
@@ -123,6 +147,17 @@ const std::vector<std::string> FloatRegNames = {
     "fs4", "fs5", "fs6", "fs7",
     "fs8", "fs9", "fs10", "fs11",
     "ft8", "ft9", "ft10", "ft11"
+};
+const std::vector<std::string> VecRegNames = {
+    "v0",  "v1",  "v2",  "v3",
+    "v4",  "v5",  "v6",  "v7",
+    "v8",  "v9",  "v10", "v11",
+    "v12", "v13", "v14", "v15",
+    "v16", "v17", "v18", "v19",
+    "v20", "v21", "v22", "v23",
+    "v24", "v25", "v26", "v27",
+    "v28", "v29", "v30", "v31",
+    "amfin", "amfree"
 };
 
 enum MiscRegIndex {
@@ -255,7 +290,10 @@ enum MiscRegIndex {
     MISCREG_QLENGTH,
     MISCREG_HEAD0,
     MISCREG_GETFIN,
-    MISCREG_FREELIST,
+    MISCREG_CLEARFIN,
+    MISCREG_GETFREE,
+    MISCREG_CLEARFREE,
+    MISCREG_WRITEFREE,
 
     NUM_MISCREGS
 };
@@ -432,6 +470,10 @@ enum MACFG_Index {
     MACFG_QLENGTH = 0x1,
     MACFG_HEAD0 = 0x2,
     MACFG_GETFIN = 0x3,
+    MACFG_CLEARFIN = 0x4,
+    MACFG_GETFREE = 0x5,
+    MACFG_CLEARFREE = 0x6,
+    MACFG_WRITEFREE = 0x7,
 };
 
 struct CSRMetadata
@@ -612,6 +654,10 @@ const std::map<int, CSRMetadata> MACFGData = {
     {MACFG_QLENGTH, {"qlength", MISCREG_QLENGTH}},
     {MACFG_HEAD0, {"head0", MISCREG_HEAD0}},
     {MACFG_GETFIN, {"getfin", MISCREG_GETFIN}},
+    {MACFG_CLEARFIN, {"clearfin", MISCREG_CLEARFIN}},
+    {MACFG_GETFREE, {"getfree", MISCREG_GETFREE}},
+    {MACFG_CLEARFREE, {"clearfree", MISCREG_CLEARFREE}},
+    {MACFG_WRITEFREE, {"writefree", MISCREG_WRITEFREE}},
 };
 
 /**

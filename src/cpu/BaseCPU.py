@@ -81,6 +81,7 @@ elif buildEnv['TARGET_ISA'] == 'power':
 elif buildEnv['TARGET_ISA'] == 'riscv':
     from m5.objects.RiscvTLB import RiscvTLB as ArchDTB, RiscvTLB as ArchITB
     from m5.objects.RiscvInterrupts import RiscvInterrupts as ArchInterrupts
+    from m5.objects.RiscvAMBufs import RiscvAMBufs as ArchAMBufs
     from m5.objects.RiscvISA import RiscvISA as ArchISA
 else:
     print("Don't know what object types to use for ISA %s" %
@@ -158,6 +159,7 @@ class BaseCPU(ClockedObject):
     if buildEnv['TARGET_ISA'] == 'power':
         UnifiedTLB = Param.Bool(True, "Is this a Unified TLB?")
     interrupts = VectorParam.BaseInterrupts([], "Interrupt Controller")
+    ambufs = VectorParam.BaseAMBufs([], "Interrupt Controller")
     isa = VectorParam.BaseISA([], "ISA instance")
 
     max_insts_all_threads = Param.Counter(0,
@@ -191,6 +193,9 @@ class BaseCPU(ClockedObject):
 
     def createInterruptController(self):
         self.interrupts = [ArchInterrupts() for i in range(self.numThreads)]
+
+    def createAMBufController(self):
+        self.ambufs = [ArchAMBufs() for i in range(self.numThreads)]
 
     def connectCachedPorts(self, bus):
         for p in self._cached_ports:

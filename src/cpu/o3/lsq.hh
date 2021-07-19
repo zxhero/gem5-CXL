@@ -1122,6 +1122,9 @@ class LSQ
 
     RequestPort &getDataPort() { return dcachePort; }
 
+    /** AMGetOp needs retry */
+    bool amNeedRetry;
+
   protected:
     /** D-cache is blocked */
     bool _cacheBlocked;

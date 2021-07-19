@@ -237,6 +237,66 @@ class BaseCache : public ClockedObject
                     const std::string &_label);
     };
 
+    class InnerRespPacketQueue : public PacketQueue
+    {
+        BaseCache *cache;
+
+      public:
+
+        /**
+         * Create a response packet queue, linked to an event manager, a
+         * CPU-side port, and a label that will be used for functional print
+         * request packets.
+         *
+         * @param _em Event manager used for scheduling this queue
+         * @param _cpu_side_port Cpu_side port used to send the packets
+         * @param force_order Force insertion order for packets with
+         *                    same address
+         * @param _label Label to push on the label stack for
+         *               print request packets
+         */
+        InnerRespPacketQueue(EventManager& _em, BaseCache *_cache,
+                        bool force_order = false,
+                        const std::string _label = "InnerRespPacketQueue");
+
+        virtual ~InnerRespPacketQueue() { }
+
+        const std::string name() const
+        { return "innerPort-" + label; }
+
+        bool sendTiming(PacketPtr pkt);
+    };
+
+    class CpuSidePort;
+    class InnerReqPacketQueue : public PacketQueue
+    {
+        CpuSidePort *cport;
+
+      public:
+
+        /**
+         * Create a response packet queue, linked to an event manager, a
+         * CPU-side port, and a label that will be used for functional print
+         * request packets.
+         *
+         * @param _em Event manager used for scheduling this queue
+         * @param _cpu_side_port Cpu_side port used to send the packets
+         * @param force_order Force insertion order for packets with same
+         *                    address
+         * @param _label Label to push on the label stack for print request
+         *               packets
+         */
+        InnerReqPacketQueue(EventManager& _em, CpuSidePort *_cache,
+                        bool force_order = false,
+                        const std::string _label = "InnerReqPacketQueue");
+
+        virtual ~InnerReqPacketQueue() { }
+
+        const std::string name() const
+        { return "innerPort-" + label; }
+
+        bool sendTiming(PacketPtr pkt);
+    };
     /**
      * A cache response port is used for the CPU-side port of the cache,
      * and it is basically a simple timing port that uses a transmit
@@ -265,6 +325,8 @@ class BaseCache : public ClockedObject
 
         /** A normal packet queue used to store responses. */
         RespPacketQueue queue;
+        InnerRespPacketQueue innerRespQueue;
+        InnerReqPacketQueue innerReqQueue;
 
         bool blocked;
 
@@ -332,11 +394,11 @@ class BaseCache : public ClockedObject
         std::unordered_set<RequestPtr> innerRequest;
         std::queue<PacketPtr> innerPkts;
 
-        std::queue<PacketPtr> innerResponse;
+        // std::queue<PacketPtr> innerResponse;
         EventManager& em;
-        EventFunctionWrapper sendInnerEvent;
+        // EventFunctionWrapper sendInnerEvent;
 
-        void processInnerSendEvent();
+        // void processInnerSendEvent();
 
       protected:
         virtual bool recvTimingSnoopResp(PacketPtr pkt) override;
@@ -351,10 +413,9 @@ class BaseCache : public ClockedObject
 
         virtual AddrRangeList getAddrRanges() const override;
 
-        virtual bool recvInnerTimingReq(PacketPtr pkt);
         virtual Tick recvInnerAtomic(PacketPtr pkt);
 
-        EventFunctionWrapper reqInnerEvent;
+        // EventFunctionWrapper reqInnerEvent;
         void processInnerReqEvent() override;
 
       public:
@@ -365,9 +426,9 @@ class BaseCache : public ClockedObject
         virtual void schedTimingResp(PacketPtr pkt, Tick when)
         {
             if (innerRequest.count(pkt->req)) {
-                innerResponse.push(pkt);
+                // innerResponse.push(pkt);
                 innerRequest.erase(pkt->req);
-                em.schedule(&sendInnerEvent, when);
+                innerRespQueue.schedSendTiming(pkt, when);
             } else {
                 respQueue.schedSendTiming(pkt, when);
             }
@@ -375,8 +436,10 @@ class BaseCache : public ClockedObject
         virtual void schedInnerTimingReq(PacketPtr pkt, Tick when)
         {
             innerPkts.push(pkt);
-            em.schedule(&reqInnerEvent, when);
+            // em.schedule(&reqInnerEvent, when);
+            innerReqQueue.schedSendTiming(pkt, when);
         }
+        virtual bool recvInnerTimingReq(PacketPtr pkt);
     };
 
     CpuSidePort cpuSidePort;

@@ -75,7 +75,9 @@ L1CacheAM::L1CacheAM(const L1CacheAMParams *p)
     : Cache(p), spmBaseAddr(p->spm_base_addr),
     isUnifiedCache(p->is_unified),
     spmCacheWays(p->spm_init_capacity),
-    forwardLatency(p->asyncmem_forward_delay)
+    forwardLatency(p->asyncmem_forward_delay),
+    finListRegValid(false),
+    freeListRegValid(false)
 {
     fatal_if(spmCacheWays > p->assoc,
         "spm ways must smaller than cache associativity");
@@ -131,9 +133,72 @@ void L1CacheAM::recvTimingReq(PacketPtr pkt)
                 "L1CacheAM: testfin at %ld\n",
                 curCycle());
         } else if (pkt->req->isAsyncCfgReg()) {
-            DPRINTF(CacheAMReq,
-                "L1CacheAM: cfgreg at %ld\n",
-                curCycle());
+            int reg_id = GET_REG_ID(pkt);
+            switch(reg_id)
+            {
+                // case MEMACC_CFG_GETFIN: {
+                //     DPRINTF(CacheAMReq,
+                //         "L1CacheAM: getfin(cached: %05s, seq=%lx) at %ld\n",
+                //         finListRegValid?"true":"false",
+                //         pkt->req->hasInstSeqNum() ?
+                //             pkt->req->getReqInstSeqNum() : 0,
+                //         curCycle());
+                //     if (finListRegValid) {
+                //         pkt->makeTimingResponse();
+                //         assert(pkt->getSize() == FL_REG_BYTES);
+                //         pkt->setData((uint8_t*)tempFinListReg);
+                //         handleUncacheableWriteResp(pkt);
+                //         return;
+                //     }
+                //     break;
+                // }
+                // case MEMACC_CFG_CLEARFIN: {
+                //     DPRINTF(CacheAMReq,
+                //         "L1CacheAM: clearfin(seq=%lx) at %ld\n",
+                //         pkt->req->hasInstSeqNum() ?
+                //             pkt->req->getReqInstSeqNum() : 0,
+                //         curCycle());
+                //     finListRegValid = false;
+                //     // pkt->makeTimingResponse();
+                //     // handleUncacheableWriteResp(pkt);
+                //     delete pkt;
+                //     return;
+                // }
+                // case MEMACC_CFG_GETFREE: {
+                //     DPRINTF(CacheAMReq,
+                //         "L1CacheAM: getfree(cached: %05s,
+                //         seq=%lx) at %ld\n",
+                //         freeListRegValid?"true":"false",
+                //         pkt->req->hasInstSeqNum() ?
+                //             pkt->req->getReqInstSeqNum() : 0,
+                //         curCycle());
+                //     if (freeListRegValid) {
+                //         pkt->makeTimingResponse();
+                //         assert(pkt->getSize() == FL_REG_BYTES);
+                //         pkt->setData((uint8_t*)tempFreeListReg);
+                //         handleUncacheableWriteResp(pkt);
+                //         return;
+                //     }
+                //     break;
+                // }
+                // case MEMACC_CFG_CLEARFREE: {
+                //     DPRINTF(CacheAMReq,
+                //         "L1CacheAM: clearfree(seq=%lx) at %ld\n",
+                //         pkt->req->hasInstSeqNum() ?
+                //             pkt->req->getReqInstSeqNum() : 0,
+                //         curCycle());
+                //     freeListRegValid = false;
+                //     // pkt->makeTimingResponse();
+                //     // handleUncacheableWriteResp(pkt);
+                //     delete pkt;
+                //     return;
+                // }
+                default:
+                    DPRINTF(CacheAMReq,
+                        "L1CacheAM: cfgreg at %ld\n",
+                        curCycle());
+                    break; // nothing to do
+            }
         }
         // asyncMemCmdPackets.push_back(pkt);
         memSidePort.schedTimingReq(pkt, clockEdge(forwardLatency));
@@ -176,7 +241,28 @@ void L1CacheAM::recvTimingResp(PacketPtr pkt)
     const Addr vaddr = pkt->getAddr();
     uintptr_t vaddr_prefix = vaddr >> 48;
     bool is_spm_addr = (vaddr_prefix == 0x1000);
-    if (is_spm_addr) {
+    if (is_spm_addr || pkt->req->isAsyncMem()) {
+        if (pkt->req->isAsyncCfgReg()) {
+            int reg_id = GET_REG_ID(pkt);
+            switch(reg_id)
+            {
+                // case MEMACC_CFG_GETFIN: {
+                //     finListRegValid = true;
+                //     assert(pkt->getSize() == FL_REG_BYTES);
+                //     pkt->writeData((uint8_t*)tempFinListReg);
+                //     break;
+                // }
+                // case MEMACC_CFG_GETFREE: {
+                //     freeListRegValid = true;
+                //     assert(pkt->getSize() == FL_REG_BYTES);
+                //     pkt->writeData((uint8_t*)tempFreeListReg);
+                //     break;
+                // }
+                default:
+                    break; // nothing to do
+            }
+
+        }
         handleUncacheableWriteResp(pkt);
         return ;
     }

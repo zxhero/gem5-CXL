@@ -185,7 +185,7 @@ class L2CacheAM(Cache):
     # representative of a x64 DDR3-1600 channel.
     bandwidth = Param.MemoryBandwidth('12.8GB/s',
         'Combined read and write bandwidth')
-    asyncmem_outstanding = Param.Unsigned(16,
+    asyncmem_outstanding = Param.Unsigned(64,
         'Maximum number of outstanding AM requests')
 
     def __init__(self, **kwargs):

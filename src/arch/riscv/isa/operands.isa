@@ -38,7 +38,19 @@ def operand_types {{
     'sd' : 'int64_t',
     'ud' : 'uint64_t',
     'sf' : 'float',
-    'df' : 'double'
+    'df' : 'double',
+    'uvh' : 'uint16_t',
+    'sv' : 'int32_t',
+    'svf': 'float',
+    'vc' : 'RiscvISA::VecRegContainer'
+}};
+
+let {{
+    def vectorReg(idx, elems = None):
+        return ('VecReg', 'vc', (idx, elems) , 'IsVector', srtNormal)
+
+    def vectorRegElem(elem, ext = 'uh', zeroing = False):
+        return (elem, ext, zeroing)
 }};
 
 def operands {{
@@ -70,6 +82,35 @@ def operands {{
     'Fc2_bits': ('FloatReg', 'ud', 'FC2', 'IsFloating', 2),
     'Fp2': ('FloatReg', 'df', 'FP2 + 8', 'IsFloating', 2),
     'Fp2_bits': ('FloatReg', 'ud', 'FP2 + 8', 'IsFloating', 2),
+
+#Vector Operand
+    'Vd': ('VecReg', 'sv', 'VD', 'IsVector', 1),
+    'Vs1': ('VecReg', 'sv', 'VS1', 'IsVector', 2),
+    'Vs2': ('VecReg', 'sv', 'VS2', 'IsVector', 3),
+    'Vs3': ('VecReg', 'sv', 'VS3', 'IsVector', 4),
+    'Vd_f': ('VecReg', 'svf', 'VD', 'IsVector', 1),
+    'Vs1_f': ('VecReg', 'svf', 'VS1', 'IsVector', 2),
+    'Vs2_f': ('VecReg', 'svf', 'VS2', 'IsVector', 3),
+    'Vs3_f': ('VecReg', 'svf', 'VS3', 'IsVector', 4),
+    'V0': ('VecReg', 'sv', '0', 'IsVector', 5),
+
+#AsyncMem Operand
+    'AMFinList': ('VecReg', 'uh', 'FINLIST_BUF_REG', 'IsVector', 1),
+    'AMFreeList': ('VecReg', 'uh', 'FREELIST_BUF_REG', 'IsVector', 1),
+    'AMFreeListBack': ('VecReg', 'uh', 'FREELIST_BACK_BUF_REG', 'IsVector', 1),
+    'AMFinListMerge': ('VecReg', 'uh', 'FINLIST_BUF_REG', 'IsVector', 1),
+    'AMFreeListMerge': ('VecReg', 'uh', 'FREELIST_BUF_REG', 'IsVector', 1),
+    'AMFreeListBackMerge': ('VecReg', 'uh', \
+                           'FREELIST_BACK_BUF_REG', 'IsVector', 1),
+    # 'AMFinList': vectorReg('FINLIST_BUF_REG',
+    # {
+    #     'FinListVec0': vectorRegElem('0'),
+    #     'FinListVec1': vectorRegElem('1'),
+    #     'FinListVec2': vectorRegElem('2'),
+    #     'FinListVec3': vectorRegElem('3'),
+    # }),
+    'AMFinListEmpty': ('CCReg', 'uw', 'AM_FIN_LIST_EMPTY', None, 1),
+    'AMFreeListEmpty': ('CCReg', 'uw', 'AM_FREE_LIST_EMPTY', None, 1),
 
 #Memory Operand
     'Mem': ('Mem', 'ud', None, ('IsMemRef', 'IsLoad', 'IsStore'), 5),

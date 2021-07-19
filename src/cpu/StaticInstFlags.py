@@ -65,6 +65,8 @@ class StaticInstFlags(Enum):
         'IsStore',          # Writes to memory.
         'IsAtomic',         # Does atomic RMW to memory.
         'IsAsyncMem',       # Does Asynchronous Memory operations.
+        'IsAMGetFin',       # Does Asynchronous Memory Getfin operations.
+        'IsAMGetFree',      # Does Asynchronous Memory Getfree operations.
         'IsStoreConditional',   # Store conditional instruction.
         'IsIndexed',        # Accesses memory with an indexed address
                             # computation

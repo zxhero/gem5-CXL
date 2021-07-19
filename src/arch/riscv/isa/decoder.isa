@@ -422,25 +422,45 @@ decode QUADRANT default Unknown::unknown() {
         0x02: decode FUNCT3 {
             format ALoad {
                 0x0: aload({{
-                    Mem_ud = Rs1_ud;
-                }}, {{
-                    Rd = Mem_ud;
+                    Rd_ud = 0;
+                    for (unsigned i = 0; i < eCount; ++i) {
+                        AMFreeList_uh[i] = AMFreeListMerge_uh[i];
+                    }
+                    if (AMFreeListMerge_uh[0] > 0) {
+                        int fPos = AMFreeListMerge_uh[0];
+                        Rd_ud = AMFreeListMerge_uh[fPos];
+                        AMFreeList_uh[fPos] = 0;
+                        AMFreeList_uh[0] = AMFreeListMerge_uh[0] - 1;
+                    } else {
+                        AMFreeList_uh[0] = 0;
+                    }
+                    Mem_ud = (Rs1_ud & ~(0xffffllu << 48)) | (Rd_ud << 48);
                 }});
             }
             format AStore {
                 0x1: astore({{
-                    Mem_ud = Rs1_ud;
-                }}, {{
-                    Rd = Mem_ud;
+                    Rd_ud = 0;
+                    for (unsigned i = 0; i < eCount; ++i) {
+                        AMFreeList_uh[i] = AMFreeListMerge_uh[i];
+                    }
+                    if (AMFreeListMerge_uh[0] > 0) {
+                        int fPos = AMFreeListMerge_uh[0];
+                        Rd_ud = AMFreeListMerge_uh[fPos];
+                        AMFreeList_uh[fPos] = 0;
+                        AMFreeList_uh[0] = AMFreeListMerge_uh[0] - 1;
+                    } else {
+                        AMFreeList_uh[0] = 0;
+                    }
+                    Mem_ud = (Rs1_ud & ~(0xffffllu << 48)) | (Rd_ud << 48);
                 }});
             }
-            format TestFin {
-                0x2: testfin({{
-                    Mem_ud = Rs1_ud;
-                }}, {{
-                    Rd = Mem_ud;
-                }});
-            }
+            // format TestFin {
+            //     0x2: testfin({{
+            //         Mem_ud = Rs1_ud;
+            //     }}, {{
+            //         Rd = Mem_ud;
+            //     }});
+            // }
             0x3: decode FUNCT12 {
                 format GetFin {
                     0x3: getfin({{

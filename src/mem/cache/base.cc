@@ -72,6 +72,9 @@ BaseCache::CacheResponsePort::CacheResponsePort(const std::string &_name,
                                           const std::string &_label)
     : QueuedResponsePort(_name, _cache, queue),
       queue(*_cache, *this, true, _label),
+      //innerRespQueue(*_cache, _cache, true, _name+"-inner-"+_label),
+      innerRespQueue(*_cache, _cache, true),
+      innerReqQueue(*_cache, static_cast<CpuSidePort*>(this), true),
       blocked(false), mustSendRetry(false),
       sendRetryEvent([this]{ processSendRetry(); }, _name),
       sendInnerRetryEvent([this]{ processInnerReqEvent(); }, _name)
@@ -2254,6 +2257,7 @@ BaseCache::CacheStats::regStats()
     blocked_cycles
         .subname(Blocked_NoMSHRs, "no_mshrs")
         .subname(Blocked_NoTargets, "no_targets")
+        .subname(Blocked_NoWBBuffers, "no_wbbuffers")
         ;
 
 
@@ -2261,11 +2265,13 @@ BaseCache::CacheStats::regStats()
     blocked_causes
         .subname(Blocked_NoMSHRs, "no_mshrs")
         .subname(Blocked_NoTargets, "no_targets")
+        .subname(Blocked_NoWBBuffers, "no_wbbuffers")
         ;
 
     avg_blocked
         .subname(Blocked_NoMSHRs, "no_mshrs")
         .subname(Blocked_NoTargets, "no_targets")
+        .subname(Blocked_NoWBBuffers, "no_wbbuffers")
         ;
     avg_blocked = blocked_cycles / blocked_causes;
 
@@ -2379,27 +2385,68 @@ BaseCache::regProbePoints()
 // CpuSidePort
 //
 ///////////////
-void BaseCache::CpuSidePort::processInnerSendEvent()
+BaseCache::InnerRespPacketQueue::InnerRespPacketQueue(EventManager& _em,
+                                 BaseCache *_cache,
+                                 bool force_order,
+                                 const std::string _label)
+    : PacketQueue(_em, _label, "innerPort-" + _label, force_order),
+      cache(_cache)
 {
-    PacketPtr pkt = innerResponse.front();
-    innerResponse.pop();
-
-    cache->recvInnerTimingResp(pkt);
 }
+
+bool
+BaseCache::InnerRespPacketQueue::sendTiming(PacketPtr pkt)
+{
+    cache->recvInnerTimingResp(pkt);
+    return true;
+}
+
+BaseCache::InnerReqPacketQueue::InnerReqPacketQueue(EventManager& _em,
+                                 CpuSidePort *_cport,
+                                 bool force_order,
+                                 const std::string _label)
+    : PacketQueue(_em, _label, "innerPort-" + _label, force_order),
+      cport(_cport)
+{
+}
+
+bool
+BaseCache::InnerReqPacketQueue::sendTiming(PacketPtr pkt)
+{
+    return cport->recvInnerTimingReq(pkt);
+}
+
+
+///////////////
+//
+// CpuSidePort
+//
+///////////////
+// void BaseCache::CpuSidePort::processInnerSendEvent()
+// {
+//     PacketPtr pkt = innerResponse.front();
+//     innerResponse.pop();
+//
+//     cache->recvInnerTimingResp(pkt);
+// }
 
 void BaseCache::CpuSidePort::processInnerReqEvent()
 {
-    assert(innerPkts.size() > 0);
-    PacketPtr pkt = innerPkts.front();
-
-    DPRINTF(CachePort, "Cache port %s try send "
-            "inner pkt(addr=%lx)\n",
-            name(), pkt->getAddr());
-
-    if (this->recvInnerTimingReq(pkt)) {
-        innerPkts.pop();
-    }
+    innerReqQueue.retry();
 }
+// void BaseCache::CpuSidePort::processInnerReqEvent()
+// {
+//     assert(innerPkts.size() > 0);
+//     PacketPtr pkt = innerPkts.front();
+//
+//     DPRINTF(CachePort, "Cache port %s try send "
+//             "inner pkt(addr=%lx)\n",
+//             name(), pkt->getAddr());
+//
+//     if (this->recvInnerTimingReq(pkt)) {
+//         innerPkts.pop();
+//     }
+// }
 
 bool
 BaseCache::CpuSidePort::recvTimingSnoopResp(PacketPtr pkt)
@@ -2539,9 +2586,9 @@ BaseCache::CpuSidePort::getAddrRanges() const
 BaseCache::
 CpuSidePort::CpuSidePort(const std::string &_name, BaseCache *_cache,
                          const std::string &_label)
-    : CacheResponsePort(_name, _cache, _label), cache(_cache), em(*_cache),
-    sendInnerEvent([this]{ processInnerSendEvent(); }, _name),
-    reqInnerEvent([this]{ processInnerReqEvent(); }, _name)
+    : CacheResponsePort(_name, _cache, _label), cache(_cache), em(*_cache)
+    // sendInnerEvent([this]{ processInnerSendEvent(); }, _name),
+    // reqInnerEvent([this]{ processInnerReqEvent(); }, _name)
 {
 }
 

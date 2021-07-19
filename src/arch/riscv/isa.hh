@@ -70,6 +70,8 @@ enum FPUStatus
 
 class ISA : public BaseISA
 {
+    bool amFinListReload;
+    bool amFreeListReload;
   protected:
     std::vector<RegVal> miscRegFile;
 

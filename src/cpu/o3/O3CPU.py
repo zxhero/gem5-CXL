@@ -126,22 +126,31 @@ class DerivO3CPU(BaseCPU):
 
     LQEntries = Param.Unsigned(32, "Number of load queue entries")
     SQEntries = Param.Unsigned(32, "Number of store queue entries")
-    LSQDepCheckShift = Param.Unsigned(4, "Number of places to shift addr before check")
+    # LQEntries = Param.Unsigned(256, "Number of load queue entries")
+    # SQEntries = Param.Unsigned(256, "Number of store queue entries")
+    LSQDepCheckShift = Param.Unsigned(4,
+        "Number of places to shift addr before check")
+    # LSQDepCheckShift = Param.Unsigned(256,
+    #   "Number of places to shift addr before check")
     LSQCheckLoads = Param.Bool(True,
         "Should dependency violations be checked for loads & stores or just stores")
     store_set_clear_period = Param.Unsigned(250000,
             "Number of load/store insts before the dep predictor should be invalidated")
     LFSTSize = Param.Unsigned(1024, "Last fetched store table size")
     SSITSize = Param.Unsigned(1024, "Store set ID table size")
+    # LFSTSize = Param.Unsigned(8192, "Last fetched store table size")
+    # SSITSize = Param.Unsigned(8192, "Store set ID table size")
 
     numRobs = Param.Unsigned(1, "Number of Reorder Buffers");
 
     numPhysIntRegs = Param.Unsigned(256, "Number of physical integer registers")
+    # numPhysIntRegs = Param.Unsigned(2048,
+    #     "Number of physical integer registers")
     numPhysFloatRegs = Param.Unsigned(256, "Number of physical floating point "
                                       "registers")
     # most ISAs don't use condition-code regs, so default is 0
     _defaultNumPhysCCRegs = 0
-    if buildEnv['TARGET_ISA'] in ('arm','x86'):
+    if buildEnv['TARGET_ISA'] in ('arm','x86','riscv'):
         # For x86, each CC reg is used to hold only a subset of the
         # flags, so we need 4-5 times the number of CC regs as
         # physical integer regs to be sure we don't run out.  In
@@ -156,8 +165,10 @@ class DerivO3CPU(BaseCPU):
     numPhysCCRegs = Param.Unsigned(_defaultNumPhysCCRegs,
                                    "Number of physical cc registers")
     numIQEntries = Param.Unsigned(64, "Number of instruction queue entries")
+    # numIQEntries = Param.Unsigned(1024,
+    #   "Number of instruction queue entries")
     numROBEntries = Param.Unsigned(192, "Number of reorder buffer entries")
-    # numROBEntries = Param.Unsigned(2, "Number of reorder buffer entries")
+    # numROBEntries = Param.Unsigned(1536, "Number of reorder buffer entries")
 
     smtNumFetchingThreads = Param.Unsigned(1, "SMT Number of Fetching Threads")
     smtFetchPolicy = Param.FetchPolicy('SingleThread', "SMT Fetch policy")

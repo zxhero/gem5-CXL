@@ -232,6 +232,8 @@ def config_mem(options, system):
                                              static_frontend_latency = '4ns')
                 elif opt_mem_type == "SimpleMemory":
                     mem_ctrl = m5.objects.SimpleMemory()
+                    # mem_ctrl = m5.objects.SimpleMemory(latency="600ns",
+                    # bandwidth="10GB/s")
                 else:
                     mem_ctrl = m5.objects.MemCtrl()
 

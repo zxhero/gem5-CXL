@@ -34,12 +34,14 @@
 #include <set>
 #include <sstream>
 
+#include "arch/riscv/ambufs.hh"
 #include "arch/riscv/interrupts.hh"
 #include "arch/riscv/pagetable.hh"
 #include "arch/riscv/registers.hh"
 #include "base/bitfield.hh"
 #include "base/compiler.hh"
 #include "cpu/base.hh"
+#include "debug/AMBuf.hh"
 #include "debug/Checkpoint.hh"
 #include "debug/RiscvMisc.hh"
 #include "params/RiscvISA.hh"
@@ -251,6 +253,18 @@ RegVal
 ISA::readMiscReg(int misc_reg)
 {
     switch (misc_reg) {
+      case MISCREG_GETFIN: {
+         int ret = 0;
+         auto ambuf = dynamic_cast<RiscvISA::AMBufs *>(
+                 tc->getCpuPtr()->getAMBufController(tc->threadId()));
+
+         ret = ambuf->popOne(FREELIST_BUF_REG);
+
+         DPRINTF(AMBuf, "getfin fifo reg: %u.\n",
+                 ret);
+         assert(0);
+         return ret;
+      }
       case MISCREG_HARTID:
         return tc->contextId();
       case MISCREG_CYCLE:

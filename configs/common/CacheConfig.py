@@ -236,6 +236,7 @@ def config_cache(options, system):
                 system.cpu[i].l2.prefetcher = hwpClass()
 
         system.cpu[i].createInterruptController()
+        system.cpu[i].createAMBufController()
         if options.l2cache and not options.async_memory:
             system.cpu[i].connectAllPorts(system.tol2bus, system.membus)
         elif options.l2cache and options.async_memory:

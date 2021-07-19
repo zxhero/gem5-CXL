@@ -486,10 +486,12 @@ MemCtrl::processRespondEvent()
             "processRespondEvent(): Some req has reached its readyTime\n");
 
     MemPacket* mem_pkt = respQueue.front();
+    bool isDram = mem_pkt->isDram();
+    uint8_t rank = mem_pkt->rank;
 
-    if (mem_pkt->isDram()) {
+    if (isDram) {
         // media specific checks and functions when read response is complete
-        dram->respondEvent(mem_pkt->rank);
+        dram->respondEvent(rank);
     }
 
     if (mem_pkt->burstHelper) {
@@ -525,11 +527,11 @@ MemCtrl::processRespondEvent()
 
             DPRINTF(Drain, "Controller done draining\n");
             signalDrainDone();
-        } else if (mem_pkt->isDram()) {
+        } else if (isDram) {
             // check the refresh state and kick the refresh event loop
             // into action again if banks already closed and just waiting
             // for read to complete
-            dram->checkRefreshState(mem_pkt->rank);
+            dram->checkRefreshState(rank);
         }
     }
 

@@ -55,6 +55,7 @@
 #include "debug/IEW.hh"
 #include "debug/LSQUnit.hh"
 #include "debug/O3PipeView.hh"
+#include "mem/cache/cacheampara.hh"
 #include "mem/packet.hh"
 #include "mem/request.hh"
 
@@ -96,6 +97,37 @@ LSQUnit<Impl>::recvTimingResp(PacketPtr pkt)
     LSQRequest* req = senderState->request();
     assert(req != nullptr);
     bool ret = true;
+    bool is_amgetfin = false;
+    bool is_amgetfree = false;
+
+    if (pkt->req->isAsyncCfgReg()) {
+        int reg_id = GET_REG_ID(pkt);
+        switch(reg_id)
+        {
+            case MEMACC_CFG_GETFIN: {
+                is_amgetfin = true;
+                assert(false == finListRegValid);
+                finListRegValid = true;
+                finListInFlight = false;
+                finListRegSeqNum = pkt->req->getReqInstSeqNum();
+                assert(pkt->getSize() == FL_REG_BYTES);
+                pkt->writeData((uint8_t*)tempFinListReg);
+                break;
+            }
+            case MEMACC_CFG_GETFREE: {
+                is_amgetfree = true;
+                assert(false == freeListRegValid);
+                freeListRegValid = true;
+                freeListInFlight = false;
+                assert(pkt->getSize() == FL_REG_BYTES);
+                pkt->writeData((uint8_t*)tempFreeListReg);
+                break;
+            }
+            default:
+                break; // nothing to do
+        }
+    }
+
     /* Check that the request is still alive before any further action. */
     if (senderState->alive()) {
         ret = req->recvTimingResp(pkt);
@@ -202,7 +234,11 @@ LSQUnit<Impl>::completeDataAccess(PacketPtr pkt)
 
 template <class Impl>
 LSQUnit<Impl>::LSQUnit(uint32_t lqEntries, uint32_t sqEntries)
-    : lsqID(-1), storeQueue(sqEntries+1), loadQueue(lqEntries+1),
+    : finListRegValid(false), finListOpInPipeline(false),
+      finListInFlight(false),
+      freeListRegValid(false), freeListOpInPipeline(false),
+      freeListInFlight(false),
+      lsqID(-1), storeQueue(sqEntries+1), loadQueue(lqEntries+1),
       loads(0), stores(0), storesToWB(0),
       htmStarts(0), htmStops(0),
       lastRetiredHtmUid(0),
@@ -734,6 +770,14 @@ LSQUnit<Impl>::commitLoad()
     DPRINTF(LSQUnit, "Committing head load instruction, PC %s\n",
             loadQueue.front().instruction()->pcState());
 
+    if (loadQueue.front().instruction()->isAMGetFin()) {
+        finListOpInPipeline = false;
+        finListRegValid = false;
+    } else if (loadQueue.front().instruction()->isAMGetFree()) {
+        freeListOpInPipeline = false;
+        freeListRegValid = false;
+    }
+
     loadQueue.front().clear();
     loadQueue.pop_front();
 
@@ -956,6 +1000,12 @@ LSQUnit<Impl>::squash(const InstSeqNum &squashed_num)
             stallingLoadIdx = 0;
         }
 
+        if (loadQueue.back().instruction()->isAMGetFin()) {
+            finListOpInPipeline = false;
+        } else if (loadQueue.back().instruction()->isAMGetFree()) {
+            freeListOpInPipeline = false;
+        }
+
         // hardware transactional memory
         // Squashing instructions can alter the transaction nesting depth
         // and must be corrected before fetching resumes.
@@ -1030,6 +1080,9 @@ LSQUnit<Impl>::squash(const InstSeqNum &squashed_num)
                 "idx:%i [sn:%lli]\n",
                 storeQueue.back().instruction()->pcState(),
                 storeQueue.tail(), storeQueue.back().instruction()->seqNum);
+
+        assert(!(storeQueue.back().instruction()->isAMGetFin() ||
+                 storeQueue.back().instruction()->isAMGetFree()));
 
         // I don't think this can happen.  It should have been cleared
         // by the stalling load.
@@ -1220,23 +1273,118 @@ LSQUnit<Impl>::trySendPacket(bool isLoad, PacketPtr data_pkt)
     bool ret = true;
     bool cache_got_blocked = false;
 
+    bool amget_hit = false;
+    bool is_async_cfgreg = data_pkt->req->isAsyncCfgReg();
+    bool is_amgetfin = false;
+    bool is_amgetfree = false;
+
     auto state = dynamic_cast<LSQSenderState*>(data_pkt->senderState);
 
-    if (!lsq->cacheBlocked() &&
-        lsq->cachePortAvailable(isLoad)) {
-        if (!dcachePort->sendTimingReq(data_pkt)) {
-            ret = false;
-            cache_got_blocked = true;
+    if (is_async_cfgreg) {
+        int reg_id = GET_REG_ID(data_pkt);
+        switch(reg_id)
+        {
+            case MEMACC_CFG_GETFIN: {
+                DPRINTF(LSQUnit,
+                    "AMReq: getfin(cached: %05s, seq=%lx)\n",
+                    finListRegValid?"true":"false",
+                    data_pkt->req->hasInstSeqNum() ?
+                        data_pkt->req->getReqInstSeqNum() : 0);
+                is_amgetfin = true;
+
+                if (finListOpInPipeline || finListInFlight) {
+                    ret = false;
+                    lsq->amNeedRetry = true;
+                } else {
+                    if (finListRegValid) {
+                        finListOpInPipeline = true;
+                        data_pkt->makeTimingResponse();
+                        assert(data_pkt->getSize() == FL_REG_BYTES);
+                        data_pkt->setData((uint8_t*)tempFinListReg);
+                        amget_hit = true;
+
+                        // state->outstanding++;
+                        // state->request()->packetSent();
+                        // ret = lsq->recvTimingResp(data_pkt);
+                        WritebackEvent *wb = new WritebackEvent(
+                            state->inst, data_pkt, this);
+                        cpu->schedule(wb, curTick() + 1);
+                    }
+                }
+                break;
+            }
+            case MEMACC_CFG_GETFREE: {
+                DPRINTF(LSQUnit,
+                    "AMReq: getfree(cached: %05s, seq=%lx)\n",
+                    freeListRegValid?"true":"false",
+                    data_pkt->req->hasInstSeqNum() ?
+                        data_pkt->req->getReqInstSeqNum() : 0);
+                is_amgetfree = true;
+
+                if (freeListOpInPipeline || freeListInFlight) {
+                    ret = false;
+                    lsq->amNeedRetry = true;
+                } else {
+                    if (freeListRegValid) {
+                        freeListOpInPipeline = true;
+                        data_pkt->makeTimingResponse();
+                        assert(data_pkt->getSize() == FL_REG_BYTES);
+                        data_pkt->setData((uint8_t*)tempFreeListReg);
+                        amget_hit = true;
+
+                        // state->outstanding++;
+                        // state->request()->packetSent();
+                        // ret = lsq->recvTimingResp(data_pkt);
+                        WritebackEvent *wb = new WritebackEvent(
+                            state->inst, data_pkt, this);
+                        cpu->schedule(wb, curTick() + 1);
+                    }
+                }
+                break;
+            }
+            default:
+                break; // nothing to do
         }
-    } else {
-        ret = false;
+    }
+
+    if (!(is_async_cfgreg && (false == ret || amget_hit))) {
+        if (!lsq->cacheBlocked() &&
+            lsq->cachePortAvailable(isLoad)) {
+            if (is_amgetfin) {
+                assert(false == finListOpInPipeline);
+            }
+            if (is_amgetfree) {
+                assert(false == freeListOpInPipeline);
+            }
+            if (!dcachePort->sendTimingReq(data_pkt)) {
+                ret = false;
+                cache_got_blocked = true;
+            } else {
+                if (is_async_cfgreg) {
+                    if (is_amgetfin) {
+                        assert(false == finListRegValid);
+                        finListOpInPipeline = true;
+                        finListInFlight = true;
+                    }
+                    if (is_amgetfree) {
+                        assert(false == freeListRegValid);
+                        freeListOpInPipeline = true;
+                        freeListInFlight = true;
+                    }
+                }
+            }
+        } else {
+            ret = false;
+        }
     }
 
     if (ret) {
         if (!isLoad) {
             isStoreBlocked = false;
         }
-        lsq->cachePortBusy(isLoad);
+        if (!amget_hit) {
+            lsq->cachePortBusy(isLoad);
+        }
         state->outstanding++;
         state->request()->packetSent();
     } else {

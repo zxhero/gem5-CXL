@@ -62,6 +62,8 @@
 struct DerivO3CPUParams;
 #include "base/circular_queue.hh"
 
+#define FL_REG_CACHE_LENGTH 32
+
 /**
  * Class that implements the actual LQ and SQ for each specific
  * thread.  Both are circular queues; load entries are freed upon
@@ -89,6 +91,16 @@ class LSQUnit
     using LSQSenderState = typename LSQ::LSQSenderState;
     using LSQRequest = typename Impl::CPUPol::LSQ::LSQRequest;
   private:
+    InstSeqNum finListRegSeqNum;
+    bool finListRegValid;
+    bool finListOpInPipeline;
+    bool finListInFlight;
+    uint16_t tempFinListReg[FL_REG_CACHE_LENGTH];
+    bool freeListRegValid;
+    bool freeListOpInPipeline;
+    bool freeListInFlight;
+    uint16_t tempFreeListReg[FL_REG_CACHE_LENGTH];
+
     class LSQEntry
     {
       private:

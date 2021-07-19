@@ -162,6 +162,10 @@ class StaticInst : public RefCounted, public StaticInstFlags
     bool isStore()        const { return flags[IsStore]; }
     bool isAtomic()       const { return flags[IsAtomic]; }
     bool isAsyncMem()     const { return flags[IsAsyncMem]; }
+    bool isAMGet()        const { return flags[IsAMGetFin] ||
+                                         flags[IsAMGetFree]; }
+    bool isAMGetFin()     const { return flags[IsAMGetFin]; }
+    bool isAMGetFree()    const { return flags[IsAMGetFree]; }
     bool isStoreConditional()     const { return flags[IsStoreConditional]; }
     bool isInstPrefetch() const { return flags[IsInstPrefetch]; }
     bool isDataPrefetch() const { return flags[IsDataPrefetch]; }

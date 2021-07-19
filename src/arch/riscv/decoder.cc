@@ -85,7 +85,9 @@ Decoder::decode(ExtMachInst mach_inst, Addr addr)
         return instMap[mach_inst];
     else {
         StaticInstPtr si = decodeInst(mach_inst);
-        instMap[mach_inst] = si;
+        if (!si->isAsyncMem()) {
+            instMap[mach_inst] = si;
+        }
         return si;
     }
 }

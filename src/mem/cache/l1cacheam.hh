@@ -52,6 +52,7 @@
 
 #include "base/types.hh"
 #include "mem/cache/cache.hh"
+#include "mem/cache/cacheampara.hh"
 #include "mem/packet.hh"
 #include "mem/simple_mem.hh"
 
@@ -69,6 +70,10 @@ class L1CacheAM : public Cache
     unsigned spmCacheWays;
     unsigned numSets;
     const Cycles forwardLatency;
+    bool finListRegValid;
+    uint16_t tempFinListReg[FL_REG_LENGTH];
+    bool freeListRegValid;
+    uint16_t tempFreeListReg[FL_REG_LENGTH];
 
     std::vector<PacketPtr> asyncMemCmdPackets;
     std::vector<PacketPtr> spmBypassedPackets;

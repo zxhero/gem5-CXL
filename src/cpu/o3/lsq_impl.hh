@@ -54,13 +54,14 @@
 #include "debug/HtmCpu.hh"
 #include "debug/LSQ.hh"
 #include "debug/Writeback.hh"
+#include "mem/cache/cacheampara.hh"
 #include "params/DerivO3CPU.hh"
 
 using namespace std;
 
 template <class Impl>
 LSQ<Impl>::LSQ(O3CPU *cpu_ptr, IEW *iew_ptr, DerivO3CPUParams *params)
-    : cpu(cpu_ptr), iewStage(iew_ptr),
+    : cpu(cpu_ptr), iewStage(iew_ptr), amNeedRetry(false),
       _cacheBlocked(false),
       cacheStorePorts(params->cacheStorePorts), usedStorePorts(0),
       cacheLoadPorts(params->cacheLoadPorts), usedLoadPorts(0),
@@ -81,7 +82,7 @@ LSQ<Impl>::LSQ(O3CPU *cpu_ptr, IEW *iew_ptr, DerivO3CPUParams *params)
     //**********************************************/
 
     /* Run SMT olicy checks. */
-        if (lsqPolicy == SMTQueuePolicy::Dynamic) {
+    if (lsqPolicy == SMTQueuePolicy::Dynamic) {
         DPRINTF(LSQ, "LSQ sharing policy set to Dynamic\n");
     } else if (lsqPolicy == SMTQueuePolicy::Partitioned) {
         DPRINTF(Fetch, "LSQ sharing policy set to Partitioned: "
@@ -170,8 +171,12 @@ void
 LSQ<Impl>::tick()
 {
     // Re-issue loads which got blocked on the per-cycle load ports limit.
-    if (usedLoadPorts == cacheLoadPorts && !_cacheBlocked)
-        iewStage->cacheUnblocked();
+    if (!_cacheBlocked) {
+        if (usedLoadPorts == cacheLoadPorts || amNeedRetry) {
+            amNeedRetry = false;
+            iewStage->cacheUnblocked();
+        }
+    }
 
     usedLoadPorts = 0;
     usedStorePorts = 0;
@@ -686,7 +691,8 @@ LSQ<Impl>::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
 
     ThreadID tid = cpu->contextToThread(inst->contextId());
     auto cacheLineSize = cpu->cacheLineSize();
-    bool needs_burst = transferNeedsBurst(addr, size, cacheLineSize);
+    bool needs_burst = transferNeedsBurst(addr, size, cacheLineSize) &&
+                       !inst->isAsyncMem();
     LSQRequest* req = nullptr;
 
     // Atomic requests that access data across cache line boundary are
@@ -1219,10 +1225,24 @@ LSQ<Impl>::SplitDataRequest::isCacheBlockHit(Addr blockAddr, Addr blockMask)
     return is_hit;
 }
 
+static const int MEMACC_FINLIST = 0x3;
 template <class Impl>
 bool
 LSQ<Impl>::DcachePort::recvTimingResp(PacketPtr pkt)
 {
+    // if (pkt->cmd == MemCmd::CfgRegResp) {
+    //     int regid = pkt->getAddr() - 0x1000000000000000llu;
+    //     if (regid == MEMACC_FINLIST) {
+    //         BaseAMBufs *ambuf = cpu->getAMBufs();
+    //         assert(ambuf != nullptr);
+
+    //         ambuf->dataFetched(pkt,
+    //                            AMBufsFetchFinishList);
+    //         ambuf->clearFetchDataFlags(AMBufsFetchFinishList);
+    //         ambuf->clearFetchDataMask(AMBufsFetchFinishList);
+    //         return true;
+    //     }
+    // }
     return lsq->recvTimingResp(pkt);
 }
 

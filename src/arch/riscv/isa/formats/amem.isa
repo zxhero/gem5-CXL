@@ -61,19 +61,346 @@ def template MACFGRdConstructor {{
 }};
 
 def template GetFinConstructor {{
-    %(class_name)s::%(class_name)s(ExtMachInst machInst):
+    %(class_name)s::%(class_name)s(ExtMachInst machInst, int decodeRng):
         %(base_class)s("%(mnemonic)s", machInst, %(op_class)s)
     {
         %(constructor)s;
 
         // overwrite default flags
-        flags[IsMemRef] = true;
+        // flags[IsMemRef] = true;
         // flags[IsLoad] = true;
+        // flags[IsLoad] = false;
+        // flags[IsStore] = true;
+        // flags[IsAtomic] = false;
+        // flags[IsAtomic] = true;
+        flags[IsAsyncMem] = true;
+
+        StaticInstPtr getfinLoad = new GetfinLdMicro(machInst, MemReadOp);
+        StaticInstPtr getfinExec = new GetfinExecMicro(machInst, No_OpClass);
+        StaticInstPtr getfinStore = new GetfinStMicro(machInst, MemWriteOp);
+
+        getfinExec->setFlag(IsFirstMicroop);
+        // getfinLoad->setFlag(IsLastMicroop);
+        if (decodeRng) {
+            getfinLoad->setFlag(IsLastMicroop);
+            microops = {getfinExec, getfinLoad};
+        } else {
+            getfinStore->setFlag(IsLastMicroop);
+            microops = {getfinExec, getfinStore};
+        }
+
+        // microops = {getfinLoad, getfinStore, getfinExec};
+    }
+}};
+
+def template GetfinMacroDeclare {{
+    /**
+     * Static instruction class for "%(mnemonic)s".
+     */
+    class %(class_name)s : public %(base_class)s
+    {
+      public:
+        /// Constructor.
+        %(class_name)s(ExtMachInst machInst, int decodeRng);
+    };
+}};
+
+def template AMemMacroDeclare {{
+    /**
+     * Static instruction class for "%(mnemonic)s".
+     */
+    class %(class_name)s : public %(base_class)s
+    {
+      public:
+        /// Constructor.
+        %(class_name)s(ExtMachInst machInst);
+    };
+}};
+
+def template GetFinMicroDeclare {{
+    /**
+     * Static instruction class for "%(mnemonic)s".
+     */
+    class %(class_name)s%(getfin_op)sMicro : public %(class_name)sMicro
+    {
+      public:
+        /// Constructor.
+        %(class_name)s%(getfin_op)sMicro(ExtMachInst _machInst,
+                                         OpClass __opClass);
+
+        Fault execute(ExecContext *, Trace::InstRecord *) const override;
+        Fault initiateAcc(ExecContext *, Trace::InstRecord *) const override;
+        Fault completeAcc(PacketPtr, ExecContext *,
+                          Trace::InstRecord *) const override;
+    };
+}};
+
+def template GetfinLdMicroConstructor {{
+    %(class_name)sLdMicro::%(class_name)sLdMicro(
+        ExtMachInst machInst, OpClass __opClass)
+            : %(class_name)sMicro("%(class_name)sLd", machInst, __opClass)
+    {
+        %(constructor)s;
+
+        flags[IsMemRef] = true;
+        flags[IsLoad] = true;
+        flags[IsStore] = false;
+        flags[IsAsyncMem] = true;
+        flags[IsAMGetFin] = true;
+    }
+}};
+
+def template GetfinStMicroConstructor {{
+    %(class_name)sStMicro::%(class_name)sStMicro(
+        ExtMachInst machInst, OpClass __opClass)
+            : %(class_name)sMicro("%(class_name)sSt", machInst, __opClass)
+    {
+        %(constructor)s;
+
+        flags[IsMemRef] = true;
         flags[IsLoad] = false;
         flags[IsStore] = true;
-        // flags[IsAtomic] = false;
-        flags[IsAtomic] = true;
         flags[IsAsyncMem] = true;
+    }
+}};
+
+def template GetfinExecMicroConstructor {{
+    %(class_name)sExecMicro::%(class_name)sExecMicro(
+        ExtMachInst machInst, OpClass __opClass)
+            : %(class_name)sMicro("%(class_name)sExec", machInst, __opClass)
+    {
+        %(constructor)s;
+    }
+}};
+
+def template GetfinLdMicroExecute {{
+    Fault
+    %(class_name)sLdMicro::execute(
+        ExecContext *xc, Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+    Fault %(class_name)sLdMicro::initiateAcc(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        unsigned long memAccessFlags =
+            Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE;
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
+        Addr EA;
+        // Addr EA = 0x1000000000000000 + MACFG_GETFIN;
+        %(op_decl)s;
+        %(op_rd)s;
+        %(ea_code)s;
+
+        %(exec_code)s;
+        // RegVal amState = xc->readCCRegOperand(this, 0);
+        Fault fault = NoFault;
+        // if (amState == AM_STATE_EMPTY) {
+        if (%(testflag_code)s) {
+            fault = xc->initiateMemRead(EA, accSize, memAccessFlags);
+            // xc->setCCRegOperand(this, 1, AM_STATE_LOADING);
+            %(setflag_code)s;
+            %(op_wb)s;
+        } else {
+            xc->setMemAccPredicate(false);
+        }
+
+        return fault;
+    }
+    Fault %(class_name)sLdMicro::completeAcc(PacketPtr pkt, ExecContext *xc,
+                      Trace::InstRecord *traceData) const
+    {
+        if (!xc->readMemAccPredicate()) return NoFault;
+
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        // TheISA::VecRegContainer& tmp_finvec =
+        //     xc->getWritableVecRegOperand(this, 0);
+        // auto finListVec = tmp_finvec.as<uint16_t>();
+
+        uint16_t finListRegBits[eCount];
+        memcpy(finListRegBits, pkt->getPtr<uint8_t>(), pkt->getSize());
+
+        %(wbfinlist_code)s;
+        %(op_wb)s;
+        // for (unsigned i = 0; i < eCount; ++i) {
+        //     finListVec[i] = finListRegBits[i];
+        // }
+
+        return NoFault;
+    }
+}};
+
+def template GetfinStMicroExecute {{
+    Fault
+    %(class_name)sStMicro::execute(
+        ExecContext *xc, Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+    Fault %(class_name)sStMicro::initiateAcc(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        unsigned long memAccessFlags =
+            Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE;
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
+
+        Addr EA;
+        // Addr EA = 0x1000000000000000 + MACFG_GETFIN;
+        %(op_decl)s;
+        %(op_rd)s;
+        %(ea_code)s;
+
+        %(exec_code)s;
+
+        // RegVal amState = xc->readCCRegOperand(this, 0);
+
+        Fault fault = NoFault;
+        // if (amState == AM_STATE_EMPTY) {
+        if (%(testflag_code)s) {
+            uint16_t membuf[eCount] = {0};
+            %(memcpy_code)s;
+            fault = xc->writeMem((uint8_t*)membuf, accSize,
+                                EA, memAccessFlags, nullptr);
+            // xc->setCCRegOperand(this, 1, AM_STATE_LOADING);
+        } else {
+            xc->setMemAccPredicate(false);
+        }
+
+        %(op_wb)s;
+
+        return fault;
+    }
+    Fault %(class_name)sStMicro::completeAcc(PacketPtr pkt,
+                      ExecContext *xc,
+                      Trace::InstRecord *traceData) const
+    {
+        if (!xc->readMemAccPredicate()) return NoFault;
+
+        return NoFault;
+    }
+}};
+
+def template GetfinExecMicroExecute {{
+    Fault
+    %(class_name)sExecMicro::execute(
+        ExecContext *xc, Trace::InstRecord *traceData) const
+    {
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        %(exec_code)s;
+
+        %(op_wb)s;
+
+        return NoFault;
+    }
+    Fault %(class_name)sExecMicro::initiateAcc(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+    Fault %(class_name)sExecMicro::completeAcc(PacketPtr pkt, ExecContext *xc,
+                      Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+}};
+
+// Basic decode template.
+def template GetfinDecode {{
+    {
+        static int decodeRng = 0;
+        // flip `decodeRng`
+        decodeRng = 1- decodeRng;
+        return new %(class_name)s(machInst, decodeRng);
+    }
+}};
+
+def template AllocFreeMicroConstructor {{
+    %(class_name)s::%(class_name)s(
+        ExtMachInst machInst, OpClass __opClass)
+            : %(base_class)s("%(mnemonic)s", machInst, __opClass)
+    {
+        %(constructor)s;
+
+        flags[IsMemRef] = true;
+        flags[IsLoad] = true;
+        flags[IsStore] = false;
+        flags[IsAMGetFree] = true;
+        flags[IsAsyncMem] = true;
+    }
+}};
+
+def template AllocFreeMicroExecute {{
+    Fault
+    %(class_name)s::execute(
+        ExecContext *xc, Trace::InstRecord *traceData) const
+    {
+        return NoFault;
+    }
+    Fault %(class_name)s::initiateAcc(ExecContext *xc,
+        Trace::InstRecord *traceData) const
+    {
+        unsigned long memAccessFlags =
+            Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE;
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
+        Addr EA;
+        // Addr EA = 0x1000000000000000 + MACFG_GETFIN;
+        %(op_decl)s;
+        %(op_rd)s;
+        %(ea_code)s;
+
+        %(pull_from_backreg)s;
+
+        // RegVal amState = xc->readCCRegOperand(this, 0);
+
+        Fault fault = NoFault;
+        // if (amState == AM_STATE_EMPTY) {
+        if (%(testflag_code)s) {
+            fault = xc->initiateMemRead(EA, accSize, memAccessFlags);
+            // xc->setCCRegOperand(this, 1, AM_STATE_LOADING);
+            %(op_wb)s;
+        } else {
+            xc->setMemAccPredicate(false);
+        }
+
+        return NoFault;
+    }
+    Fault %(class_name)s::completeAcc(PacketPtr pkt, ExecContext *xc,
+                      Trace::InstRecord *traceData) const
+    {
+        if (!xc->readMemAccPredicate()) return NoFault;
+
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
+
+        %(op_decl)s;
+        %(op_rd)s;
+
+        uint16_t freeListRegBits[eCount];
+        memcpy(freeListRegBits, pkt->getPtr<uint8_t>(), pkt->getSize());
+
+        %(wbfinlist_code)s;
+        %(op_wb)s;
+
+        return NoFault;
     }
 }};
 
@@ -93,68 +420,6 @@ def template MACFGDeclare {{
                           Trace::InstRecord *) const override;
     };
 }};
-
-def template GetFinExecute {{
-    Fault
-    %(class_name)s::execute(ExecContext *xc,
-        Trace::InstRecord *traceData) const
-    {
-        return NoFault;
-    }
-    Fault
-    %(class_name)s::initiateAcc(ExecContext *xc,
-        Trace::InstRecord *traceData) const
-    {
-        Fault fault = NoFault;
-
-        %(op_decl)s;
-        %(op_rd)s;
-
-        RegVal data = 0, olddata;
-        if (MACFGData.find(cfgreg) != MACFGData.end()) {
-            assert(cfgreg == MACFG_GETFIN);
-            fault = writeMemTimingLE(xc, traceData, data,
-                0x1000000000000000 + cfgreg,
-                Request::ASYNCMEM_CFGREG | Request::UNCACHEABLE,
-                nullptr);
-        } else {
-            std::string error = csprintf("Illegal MACFG index %#x\n", cfgreg);
-            fault = make_shared<IllegalInstFault>(error, machInst);
-            olddata = 0;
-        }
-        DPRINTF(RiscvMisc, "Reading MACFG %s: %#x\n",
-                MACFGData.at(cfgreg).name, olddata);
-        data = olddata;
-
-        if (fault == NoFault) {
-            %(code)s;
-            if (fault == NoFault) {
-                %(op_wb)s;
-            }
-        }
-        return fault;
-    }
-    Fault
-    %(class_name)s::completeAcc(PacketPtr pkt, ExecContext *xc,
-        Trace::InstRecord *traceData) const
-    {
-        Fault fault = NoFault;
-        if (cfgreg == MACFG_GETFIN) {
-            %(op_decl)s;
-            %(op_rd)s;
-            RegVal data;
-            getMemLE(pkt, data, traceData);
-            if (fault == NoFault) {
-                %(code)s;
-                if (fault == NoFault) {
-                    %(op_wb)s;
-                }
-            }
-        }
-        return NoFault;
-    }
-}};
-
 
 def template MACFGRdExecute {{
     Fault
@@ -324,7 +589,7 @@ def template FlushExecute {{
     }
 }};
 
-def template ALoadStoreDeclare {{
+def template FlushDeclare {{
     /**
      * Static instruction class for "%(mnemonic)s".
      */
@@ -332,7 +597,7 @@ def template ALoadStoreDeclare {{
     {
       public:
         /// Constructor.
-        %(class_name)s(ExtMachInst machInst);
+        %(class_name)s(ExtMachInst _machInst);
 
         Fault execute(ExecContext *, Trace::InstRecord *) const override;
         Fault initiateAcc(ExecContext *, Trace::InstRecord *) const override;
@@ -341,6 +606,39 @@ def template ALoadStoreDeclare {{
     };
 }};
 
+def template ALoadStoreDeclare {{
+    /**
+     * Static instruction class for "%(mnemonic)s".
+     */
+    class %(class_name)s : public %(base_class)s
+    {
+      public:
+        /// Constructor.
+        %(class_name)s(ExtMachInst _machInst, OpClass __opClass);
+
+        Fault execute(ExecContext *, Trace::InstRecord *) const override;
+        Fault initiateAcc(ExecContext *, Trace::InstRecord *) const override;
+        Fault completeAcc(PacketPtr, ExecContext *,
+                          Trace::InstRecord *) const override;
+    };
+}};
+
+def template ALoadStoreExecMicroConstructor {{
+    %(class_name)s::%(class_name)s(
+        ExtMachInst machInst, OpClass __opClass):
+        %(base_class)s("%(mnemonic)s", machInst, __opClass)
+    {
+        %(constructor)s;
+        %(offset_code)s;
+
+        // overwrite default flags
+        flags[IsMemRef] = true;
+        flags[IsLoad] = false;
+        flags[IsStore] = true;
+        // flags[IsAtomic] = true;
+        flags[IsAsyncMem] = true;
+    }
+}};
 
 def template ALoadStoreConstructor {{
     %(class_name)s::%(class_name)s(ExtMachInst machInst):
@@ -350,33 +648,37 @@ def template ALoadStoreConstructor {{
         %(offset_code)s;
 
         // overwrite default flags
-        flags[IsMemRef] = true;
-        flags[IsLoad] = false;
-        flags[IsStore] = true;
-        flags[IsAtomic] = true;
-        flags[IsAsyncMem] = true;
+        // flags[IsMemRef] = true;
+        // flags[IsLoad] = false;
+        // flags[IsStore] = true;
+        // flags[IsAtomic] = true;
+        // flags[IsAsyncMem] = true;
+
+        StaticInstPtr allocFreeMicro =
+            new AllocFreeMicro(machInst, MemReadOp);
+        StaticInstPtr execMicro =
+            new %(class_name)sExecMicro(machInst, No_OpClass);
+
+        allocFreeMicro->setFlag(IsFirstMicroop);
+        execMicro->setFlag(IsLastMicroop);
+
+        // microops = {getfinLoad, getfinStore, getfinExec};
+        microops = {allocFreeMicro, execMicro};
     }
 }};
 
 let {{
 def ALoadStoreBase(name, Name, offset_code, ea_code, memacc_code,
-        memacc_code2, mem_flags,
-        inst_flags, base_class, postacc_code='', decode_template=BasicDecode,
-        exec_template_base=''):
+        mem_flags, inst_flags, base_class, postacc_code='',
+        decode_template=BasicDecode, exec_template_base=''):
     # Make sure flags are in lists (convert to lists if not).
     mem_flags = makeList(mem_flags)
     inst_flags = makeList(inst_flags)
 
     iop = InstObjParams(name, Name, base_class,
         {'offset_code': offset_code, 'ea_code': ea_code,
-         'memacc_code': memacc_code, 'memacc_code2': memacc_code2,
          'postacc_code': postacc_code },
         inst_flags)
-
-    if mem_flags:
-        mem_flags = [ 'Request::%s' % flag for flag in mem_flags ]
-        s = '\n\tmemAccessFlags = ' + '|'.join(mem_flags) + ';'
-        iop.constructor += s
 
     # select templates
 
@@ -384,13 +686,30 @@ def ALoadStoreBase(name, Name, offset_code, ea_code, memacc_code,
     initiateAccTemplate = eval(exec_template_base + 'InitiateAcc')
     completeAccTemplate = eval(exec_template_base + 'CompleteAcc')
 
-    # (header_output, decoder_output, decode_block, exec_output)
-    return (ALoadStoreDeclare.subst(iop),
-        ALoadStoreConstructor.subst(iop),
-        decode_template.subst(iop),
-        fullExecTemplate.subst(iop) +
-        initiateAccTemplate.subst(iop) +
-        completeAccTemplate.subst(iop))
+    header_output = AMemMacroDeclare.subst(iop)
+    decoder_output = ALoadStoreConstructor.subst(iop)
+    decode_block = decode_template.subst(iop)
+
+    if mem_flags:
+        mem_flags = [ 'Request::%s' % flag for flag in mem_flags ]
+        s = '\n\tRequest::Flags memAccessFlags = ' + '|'.join(mem_flags) + ';'
+    iop = InstObjParams(name+"ExecMicro", Name+"ExecMicro",
+        "ALoadStoreMicro",
+        {'offset_code': offset_code, 'ea_code': ea_code,
+        'memacc_code': memacc_code, 'postacc_code': postacc_code,
+        'memflags_def': s},
+        inst_flags)
+
+    header_output += ALoadStoreDeclare.subst(iop)
+    decoder_output += ALoadStoreExecMicroConstructor.subst(iop)
+    exec_output = fullExecTemplate.subst(iop) + \
+        initiateAccTemplate.subst(iop) + \
+        completeAccTemplate.subst(iop)
+
+    return (header_output,
+        decoder_output,
+        decode_block,
+        exec_output)
 }};
 
 def template ALoadStoreExecute {{
@@ -398,6 +717,9 @@ def template ALoadStoreExecute {{
     %(class_name)s::execute(ExecContext *xc,
         Trace::InstRecord *traceData) const
     {
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
         Addr EA;
         Fault fault = NoFault;
 
@@ -405,13 +727,15 @@ def template ALoadStoreExecute {{
         %(op_rd)s;
         %(ea_code)s;
 
+        %(memflags_def)s;
+
         if (fault == NoFault) {
             %(memacc_code)s;
         }
 
         if (fault == NoFault) {
-            fault = writeMemAtomicLE(xc, traceData, Mem, EA, memAccessFlags,
-                nullptr);
+            fault = writeMemAtomicLE(xc, traceData, Mem,
+                EA, memAccessFlags, nullptr);
         }
 
         if (fault == NoFault) {
@@ -431,6 +755,9 @@ def template ALoadStoreInitiateAcc {{
     %(class_name)s::initiateAcc(ExecContext *xc,
         Trace::InstRecord *traceData) const
     {
+        constexpr unsigned accSize = 64; // Cache Line size
+        constexpr unsigned eCount =
+            accSize / sizeof(uint16_t); // Cache Line size
         Addr EA;
         Fault fault = NoFault;
 
@@ -438,16 +765,20 @@ def template ALoadStoreInitiateAcc {{
         %(op_rd)s;
         %(ea_code)s;
 
+        %(memflags_def)s;
+
         if (fault == NoFault) {
             %(memacc_code)s;
         }
 
-        if (fault == NoFault) {
+        if (fault == NoFault && Rd != 0) {
             uint64_t macfgreg = FUNCT7;
             uint64_t olddata =
                 xc->readMiscReg(MACFGData.at(macfgreg).physIndex);
             fault = writeMemTimingLE(xc, traceData, Mem, EA,
                 memAccessFlags, &olddata);
+        } else {
+            xc->setMemAccPredicate(false);
         }
 
         if (fault == NoFault) {
@@ -465,55 +796,39 @@ def template ALoadStoreCompleteAcc {{
     {
         Fault fault = NoFault;
 
-        // int64_t rd = 0;
-        // int64_t mem;
-        %(op_decl)s;
-        %(op_rd)s;
-
-        getMemLE(pkt, Mem, traceData);
-
-        if (fault == NoFault) {
-            %(memacc_code2)s;
-        }
-
-        if (fault == NoFault) {
-            %(op_wb)s;
-            // int64_t final_val = rd;
-            // xc->setIntRegOperand(this, 0, final_val);
-            // if (traceData) { traceData->setData(final_val); }
-        }
-
         return fault;
     }
 }};
 
-def format ALoad(memacc_code, memacc_code2, ea_code = {{EA = Rs2;}},
+def format ALoad(memacc_code, ea_code = {{EA = Rs2;}},
         offset_code={{;}}, mem_flags=[ASYNCMEM_ALOAD, UNCACHEABLE],
         inst_flags=[]) {{
     (header_output, decoder_output, decode_block, exec_output) = \
         ALoadStoreBase(name, Name, offset_code, ea_code, \
-        memacc_code, memacc_code2,\
-        mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
+        memacc_code, \
+        mem_flags, inst_flags, 'ALoadStoreMacro',\
+        exec_template_base='ALoadStore')
 }};
 
-def format AStore(memacc_code, memacc_code2, ea_code={{EA = Rs2;}},
+def format AStore(memacc_code, ea_code={{EA = Rs2;}},
         offset_code={{;}}, mem_flags=[ASYNCMEM_ASTORE, UNCACHEABLE],
         inst_flags=[]) {{
     (header_output, decoder_output, decode_block, exec_output) = \
         ALoadStoreBase(name, Name, offset_code, ea_code, \
-        memacc_code, memacc_code2,\
-        mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
+        memacc_code, \
+        mem_flags, inst_flags, 'ALoadStoreMacro', \
+        exec_template_base='ALoadStore')
 }};
 
-def format TestFin(memacc_code, memacc_code2,
-        ea_code={{EA = 0x1000000000000000;}},
-        offset_code={{;}}, mem_flags=[ASYNCMEM_TESTFIN, UNCACHEABLE],
-        inst_flags=[]) {{
-    (header_output, decoder_output, decode_block, exec_output) = \
-        ALoadStoreBase(name, Name, offset_code, ea_code, \
-        memacc_code, memacc_code2,\
-        mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
-}};
+// def format TestFin(memacc_code, memacc_code2,
+//         ea_code={{EA = 0x1000000000000000;}},
+//         offset_code={{;}}, mem_flags=[ASYNCMEM_TESTFIN, UNCACHEABLE],
+//         inst_flags=[]) {{
+//     (header_output, decoder_output, decode_block, exec_output) = \
+//         ALoadStoreBase(name, Name, offset_code, ea_code, \
+//         memacc_code, memacc_code2,\
+//         mem_flags, inst_flags, 'Store', exec_template_base='ALoadStore')
+// }};
 
 def format MACFGRdOp(code, *opt_flags) {{
     iop = InstObjParams(name, Name, 'MACFGOp', {"code": code}, opt_flags)
@@ -524,11 +839,121 @@ def format MACFGRdOp(code, *opt_flags) {{
 }};
 
 def format GetFin(code, *opt_flags) {{
-    iop = InstObjParams(name, Name, 'MACFGOp', {"code": code}, opt_flags)
-    header_output = MACFGDeclare.subst(iop)
+    ea_code='EA=0x1000000000000000 + MACFG_GETFIN;'
+    testflag_code='AMFinListEmpty == AM_STATE_EMPTY'
+    exec_code='\
+    for (unsigned i = 0; i < eCount; ++i) { \n\
+        AMFinList_uh[i] = AMFinListMerge_uh[i]; \n\
+    }'
+    wbfinlist_code='\
+        for (unsigned i = 0; i < eCount; ++i) { \n\
+            AMFinList_uh[i] = finListRegBits[i]; \n\
+        }'
+    setflag_code='AMFinListEmpty = AM_STATE_LOADING;'
+    iop = InstObjParams(name, Name, 'GetfinMacro',
+        {"getfin_op": "Ld", "ea_code": ea_code,
+        "exec_code": exec_code,
+        "testflag_code": testflag_code,
+        "setflag_code": setflag_code,
+        "wbfinlist_code": wbfinlist_code}, opt_flags)
+    header_output = GetfinMacroDeclare.subst(iop)
+    header_output += GetFinMicroDeclare.subst(iop)
     decoder_output = GetFinConstructor.subst(iop)
-    decode_block = BasicDecode.subst(iop)
-    exec_output = GetFinExecute.subst(iop)
+    decoder_output += GetfinLdMicroConstructor.subst(iop)
+    exec_output = GetfinLdMicroExecute.subst(iop)
+
+    decode_block = GetfinDecode.subst(iop)
+    exec_code='\
+    for (unsigned i = 0; i < eCount; ++i) { \n\
+        AMFinList_uh[i] = AMFinListMerge_uh[i]; \n\
+        AMFreeListBack_uh[i] = AMFreeListBackMerge_uh[i]; \n\
+    } \n\
+    if (AMFinListMerge_uh[0] > 0 &&\n\
+        AMFreeListBackMerge_uh[0] < eCount - 1) { \n\
+        int finPos = AMFinListMerge_uh[0]; \n\
+        Rd = AMFinListMerge_uh[finPos]; \n\
+        for (unsigned i = finPos; i < eCount; ++i) { \n\
+            AMFinList_uh[i] = 0; \n\
+        } \n\
+        AMFinList_uh[0] = AMFinListMerge_uh[0] - 1; \n\
+        int freePos = AMFreeListBackMerge_uh[0] + 1; \n\
+        AMFreeListBack_uh[freePos] = Rd; \n\
+        AMFreeListBack_uh[0] = AMFreeListBackMerge_uh[0] + 1;\n \
+    } else { \n\
+        Rd = 0; \n\
+        if (AMFinListMerge_uh[0] == 0) { \n\
+            AMFinListEmpty = AM_STATE_EMPTY; \n\
+        } \n\
+    }'
+
+    iop = InstObjParams(name, Name, 'GetfinMacro',
+        {"getfin_op": "Exec", "exec_code": exec_code}, opt_flags)
+    header_output += GetFinMicroDeclare.subst(iop)
+    decoder_output += GetfinExecMicroConstructor.subst(iop)
+    exec_output += GetfinExecMicroExecute.subst(iop)
+
+    ea_code='EA=0x1000000000000000 + MACFG_WRITEFREE;'
+    exec_code='\
+    for (unsigned i = 0; i < eCount; ++i) { \n\
+        AMFreeList_uh[i] = AMFreeListMerge_uh[i]; \n\
+        AMFreeListBack_uh[i] = AMFreeListBackMerge_uh[i]; \n\
+    }'
+    testflag_code='AMFreeListBackMerge_uh[0] == eCount - 1'
+    memcpy_code=' \
+        for (unsigned i = 0; i < eCount; ++i) { \n\
+            membuf[i] = AMFreeListBackMerge_uh[i]; \n\
+            AMFreeListBack_uh[i] = 0; \n\
+        }'
+    iop = InstObjParams(name, Name, 'GetfinMacro',
+        {"getfin_op": "St", "ea_code": ea_code,
+        "exec_code": exec_code,
+        "memcpy_code": memcpy_code,
+        "testflag_code": testflag_code}, opt_flags)
+    header_output += GetFinMicroDeclare.subst(iop)
+    decoder_output += GetfinStMicroConstructor.subst(iop)
+    exec_output += GetfinStMicroExecute.subst(iop)
+
+    # define allocFreeMicro here!
+    ea_code='EA=0x1000000000000000 + MACFG_GETFREE;'
+    testflag_code='freeListFinalCount == 0'
+    wbfinlist_code='\
+        for (unsigned i = 0; i < eCount; ++i) { \n\
+            AMFreeList_uh[i] = freeListRegBits[i]; \n\
+        }'
+    pull_from_backreg='\
+        int freeListFinalCount = AMFreeListMerge_uh[0]; \n\
+        for (unsigned i = 0; i < eCount; ++i) { \n\
+            AMFreeList_uh[i] = AMFreeListMerge_uh[i]; \n\
+            AMFreeListBack_uh[i] = AMFreeListBackMerge_uh[i]; \n\
+        } \n\
+        if (AMFreeListBackMerge_uh[0] > 0) { \n\
+            int pullIn = eCount - 1 - AMFreeListMerge_uh[0]; \n\
+            pullIn = pullIn > AMFreeListBackMerge_uh[0] ? \n\
+                AMFreeListBackMerge_uh[0] : pullIn; \n\
+            if (pullIn > 0) { \n\
+                int pos = AMFreeListMerge_uh[0]; \n\
+                int bpos = AMFreeListBackMerge_uh[0]; \n\
+                for (unsigned i = 0; i < pullIn; ++i) { \n\
+                    pos = pos + 1; \n\
+                    AMFreeList_uh[pos] = AMFreeListBackMerge_uh[bpos]; \n\
+                    bpos = bpos - 1; \n\
+                    freeListFinalCount = pos; \n\
+                    AMFreeList_uh[0] = pos; \n\
+                    AMFreeListBack_uh[0] = bpos; \n\
+                } \n\
+            } \n\
+        }'
+    iop = InstObjParams('allocFreeMicro', 'AllocFreeMicro',
+    'ALoadStoreMicro',
+        {"ea_code": ea_code,
+         "testflag_code": testflag_code,
+         "pull_from_backreg": pull_from_backreg,
+         "wbfinlist_code": wbfinlist_code}, opt_flags)
+    header_output += ALoadStoreDeclare.subst(iop)
+    decoder_output += AllocFreeMicroConstructor.subst(iop)
+    exec_output += AllocFreeMicroExecute.subst(iop)
+
+    # exec_output = GetFinExecute.subst(iop)
 }};
 
 def format MACFGWrOp(code, *opt_flags) {{
@@ -541,7 +966,7 @@ def format MACFGWrOp(code, *opt_flags) {{
 
 def format FlushOp(code, *opt_flags) {{
     iop = InstObjParams(name, Name, 'Store', {"code": code}, opt_flags)
-    header_output = ALoadStoreDeclare.subst(iop)
+    header_output = FlushDeclare.subst(iop)
     decoder_output = FlushConstructor.subst(iop)
     decode_block = BasicDecode.subst(iop)
     exec_output = FlushExecute.subst(iop)

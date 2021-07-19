@@ -1,0 +1,23 @@
+#ifndef  __MEM_CACHE_CACHEAMPARA_HH__
+#define  __MEM_CACHE_CACHEAMPARA_HH__
+
+#define FL_REG_BYTES 64
+#define FL_REG_LENGTH ((FL_REG_BYTES) / sizeof(uint16_t))
+
+#define GET_REG_ID(pkt) (pkt->getAddr() - 0x1000000000000000llu);
+
+enum MemAccConfigRegs
+{
+    MEMACC_CFG_QBASE =   0x0,
+    MEMACC_CFG_QLENGTH = 0x1,
+    MEMACC_CFG_HEAD0 =   0x2,
+    MEMACC_CFG_GETFIN =  0x3,
+    MEMACC_CFG_CLEARFIN = 0x4,
+    MEMACC_CFG_GETFREE = 0x5,
+    MEMACC_CFG_CLEARFREE = 0x6,
+    MEMACC_CFG_WRITEFREE = 0x7,
+
+    MEMACC_CFG_COUNT,
+};
+
+#endif //__MEM_CACHE_CACHEAMPARA_HH__
