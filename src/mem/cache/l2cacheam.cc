@@ -1357,6 +1357,7 @@ void L2CacheAM::AmRespStateMachine::getfinRespHelper(uint16_t respReg[])
 
     char debug_str_buf[8*FL_REG_BYTES] = {0};
     int debug_str_pos = 0;
+    assert(0 <= respReg[0] && respReg[0] < FL_REG_LENGTH);
     for (int i = 1; i <= respReg[0]; ++i) {
         int sprintf_ret =
             sprintf(&debug_str_buf[debug_str_pos],"%d,",
@@ -1673,6 +1674,8 @@ void L2CacheAM::AmRespStateMachine::spmFsmProcess(
                         (uint8_t*)&tempFinListReg[tempFinListReg[0] + 1]);
 
                     tempFinListReg[0] += spmpkt->getSize() / sizeof(uint16_t);
+                    assert(0 <= tempFinListReg[0] &&
+                           tempFinListReg[0] < FL_REG_LENGTH);
                     delete spmpkt;
 
                     getFinListIfRemains();
@@ -1756,6 +1759,8 @@ void L2CacheAM::FreeListStateMachine::responseAndPull()
 {
     PacketPtr reqpkt = outstandingAsyncMemPkt;
     if (tempFreeListReg[0] != 0) {
+        assert(0 <= tempFreeListReg[0] &&
+               tempFreeListReg[0] < FL_REG_LENGTH);
         char debug_str_buf[8*FL_REG_BYTES] = {0};
         int debug_str_pos = 0;
         for (int i = 1; i <= tempFreeListReg[0]; ++i) {
@@ -1842,6 +1847,8 @@ void L2CacheAM::FreeListStateMachine::spmFsmProcess(
                         tempFreeListReg[++tempFreeListReg[0]] =
                             wbData[wbData[0]--];
                     }
+                    assert(0 <= tempFreeListReg[0] &&
+                           tempFreeListReg[0] < FL_REG_LENGTH);
 
                     reqpkt->makeTimingResponse();
                     parent->cpuSidePort.schedTimingResp(reqpkt,

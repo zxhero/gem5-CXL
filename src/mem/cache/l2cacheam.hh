@@ -489,6 +489,7 @@ class L2CacheAM : public Cache
                 L2CacheAM::SpmStateMachine(em, _capacity,
                     reqId), val(0), val2(0), pullRemains(0) {
                 memset(tempFinListReg, 0, sizeof(tempFinListReg));
+                memset(tempFinListBackReg, 0, sizeof(tempFinListBackReg));
             }
             void spmFsmProcess(SpmFSMEvent spmFsmEvent,
                 void* data);
